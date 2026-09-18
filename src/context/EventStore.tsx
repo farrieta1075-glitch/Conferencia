@@ -7,9 +7,12 @@ import {
   useLayoutEffect,
   useMemo,
   useReducer,
+  useRef,
   type ReactNode,
 } from "react";
+import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
+import { hasPermission } from "@/lib/auth/roles";
 import { AREA_ORDER, DEFAULT_PRICES, STORAGE_KEY } from "@/lib/constants";
 import { seatId } from "@/lib/format";
 import { buildInstallmentPlans } from "@/lib/installments";
@@ -297,14 +300,21 @@ interface StoreValue {
   updatePurchase: (id: string, patch: PurchasePatch) => Promise<void>;
   applyPayment: (id: string, amount: number, settleAll?: boolean) => Promise<void>;
   resetVenue: () => Promise<void>;
+  reloadFromSheets: () => Promise<void>;
   statusOf: (id: string) => SeatStatus;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function EventStoreProvider({ children }: { children: ReactNode }) {
+  const { status, data: session } = useSession();
   const [state, dispatch] = useReducer(reducer, undefined, createDefaultState);
   const [hydrated, setHydrated] = useReducer((_: boolean, value: boolean) => value, false);
+  const [remoteReady, setRemoteReady] = useReducer((_: boolean, value: boolean) => value, false);
+  const skipSync = useRef(true);
+  const allowSync = useRef(false);
+  const syncTimer = useRef<number>(0);
+  const canSync = hasPermission(session?.user?.role, "sheets:sync");
 
   useLayoutEffect(() => {
     try {
@@ -322,13 +332,65 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (status !== "authenticated") {
+      if (status === "unauthenticated") setRemoteReady(true);
+      return;
+    }
+    let cancelled = false;
+    void apiFetch<{ state?: PersistedState | null; hydrateError?: string }>("/api/sheets?hydrate=1")
+      .then((payload) => {
+        if (cancelled) return;
+        if (payload.hydrateError) {
+          console.warn("Google Sheets:", payload.hydrateError);
+        }
+        const incoming = payload.state;
+        if (incoming) {
+          skipSync.current = true;
+          allowSync.current = true;
+          dispatch({
+            type: "hydrate",
+            state: {
+              ...incoming,
+              tabulador: incoming.tabulador.areas.length ? incoming.tabulador : state.tabulador,
+            },
+          });
+        }
+      })
+      .catch((error) => {
+        console.warn("No se pudo leer Google Sheets", error);
+      })
+      .finally(() => {
+        if (!cancelled) setRemoteReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Solo al autenticar: no rehidratar en cada cambio de estado local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+
+  useEffect(() => {
     if (!hydrated) return;
+    if (status === "loading" || (status === "authenticated" && !remoteReady)) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (error) {
       console.warn("No se pudo guardar localStorage", error);
     }
-  }, [state, hydrated]);
+  }, [state, hydrated, remoteReady, status]);
+
+  useEffect(() => {
+    if (!hydrated || !remoteReady || !canSync || !allowSync.current || status !== "authenticated") return;
+    if (skipSync.current) {
+      skipSync.current = false;
+      return;
+    }
+    window.clearTimeout(syncTimer.current);
+    syncTimer.current = window.setTimeout(() => {
+      void syncSheets(state);
+    }, 1200);
+    return () => window.clearTimeout(syncTimer.current);
+  }, [canSync, hydrated, remoteReady, state, status]);
 
   const value = useMemo<StoreValue>(() => {
     const seatIndex = indexSeats(state.tabulador);
@@ -396,6 +458,32 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       resetVenue: async () => {
         await apiFetch("/api/venues", { method: "DELETE" });
         dispatch({ type: "resetVenue" });
+      },
+      reloadFromSheets: async () => {
+        const payload = await apiFetch<{
+          state?: PersistedState | null;
+          hydrateError?: string;
+          ready?: boolean;
+        }>("/api/sheets?hydrate=1");
+        if (payload.hydrateError) throw new Error(payload.hydrateError);
+        if (!payload.state) {
+          throw new Error(
+            payload.ready
+              ? "La hoja no tiene datos para cargar"
+              : "Falta GOOGLE_SHEETS_ID o las credenciales en Vercel",
+          );
+        }
+        skipSync.current = true;
+        allowSync.current = true;
+        dispatch({
+          type: "hydrate",
+          state: {
+            ...payload.state,
+            tabulador: payload.state.tabulador.areas.length
+              ? payload.state.tabulador
+              : state.tabulador,
+          },
+        });
       },
       statusOf: (id) => state.seatStatus[id] ?? "unassigned",
     };

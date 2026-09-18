@@ -12,7 +12,10 @@ export interface AuthUser {
   source: "env" | "file";
 }
 
-const USERS_FILE = path.join(process.cwd(), "data", "users.json");
+const USERS_FILE = path.join(
+  process.env.VERCEL ? "/tmp" : path.join(process.cwd(), "data"),
+  "users.json",
+);
 
 function safeEqual(left: string, right: string): boolean {
   const a = Buffer.from(left);

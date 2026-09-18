@@ -12,7 +12,7 @@ function toLocalInput(iso: string) {
 }
 
 export default function EventoAdminPage() {
-  const { state, setEvent, resetVenue } = useEventStore();
+  const { state, setEvent, resetVenue, reloadFromSheets } = useEventStore();
   const [name, setName] = useState(state.event.name);
   const [datetime, setDatetime] = useState(toLocalInput(state.event.datetime));
   const [logoDataUrl, setLogoDataUrl] = useState(state.event.logoDataUrl ?? "");
@@ -28,12 +28,16 @@ export default function EventoAdminPage() {
   }, [state.event]);
 
   useEffect(() => {
-    void apiFetch<{ configured: boolean; spreadsheetId: string; ready: boolean }>("/api/sheets")
+    void apiFetch<{
+      configured: boolean;
+      spreadsheetId: string;
+      ready: boolean;
+    }>("/api/sheets")
       .then((data) => {
         setSheetId(data.spreadsheetId);
-        if (!data.configured) setSheetStatus("Faltan credenciales en .env.local");
-        else if (!data.spreadsheetId) setSheetStatus("Pega el ID de la hoja compartida");
-        else setSheetStatus("Hoja conectada. Las ventas se sincronizan al guardar.");
+        if (!data.configured) setSheetStatus("Faltan credenciales de Google en Vercel / .env.local");
+        else if (!data.spreadsheetId) setSheetStatus("Falta GOOGLE_SHEETS_ID en las variables de entorno");
+        else setSheetStatus("Hoja configurada. Pulsa sincronizar para cargar o guardar datos.");
       })
       .catch(() => setSheetStatus("No se pudo consultar el estado de Google Sheets"));
   }, []);
@@ -63,11 +67,12 @@ export default function EventoAdminPage() {
     try {
       await apiFetch("/api/sheets", {
         method: "POST",
-        body: JSON.stringify({ spreadsheetId: sheetId.trim(), state: state }),
+        body: JSON.stringify({ spreadsheetId: sheetId.trim() }),
       });
-      setSheetStatus("Hoja guardada y pestañas creadas si faltaban.");
+      await reloadFromSheets();
+      setSheetStatus("Datos cargados desde Google Sheets.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar el ID de la hoja");
+      setError(err instanceof Error ? err.message : "No se pudo sincronizar Google Sheets");
     }
   }
 
@@ -115,16 +120,20 @@ export default function EventoAdminPage() {
         <h3 className="font-display text-2xl">Google Sheets</h3>
         <p className="mt-1 text-sm text-ink-muted">{sheetStatus}</p>
         <p className="mt-1 text-xs text-ink-muted">
-          El JSON de la cuenta de servicio no se copia al proyecto: vive en{" "}
-          <code>.env.local</code>. El ID es la parte entre <code>/d/</code> y{" "}
-          <code>/edit</code> de la URL.
+          En Vercel el ID no se guarda en un archivo: usa la variable{" "}
+          <code>GOOGLE_SHEETS_ID</code>. Este botón sincroniza y recarga la hoja.
         </p>
         <label className="mt-3 block text-sm font-medium text-ink-muted">
           ID de la hoja
-          <input className="field mt-1" value={sheetId} onChange={(e) => setSheetId(e.target.value)} />
+          <input
+            className="field mt-1"
+            value={sheetId}
+            onChange={(e) => setSheetId(e.target.value)}
+            readOnly={Boolean(sheetId)}
+          />
         </label>
         <button type="button" className="btn-secondary mt-3" onClick={() => void saveSheetId()}>
-          Conectar hoja y crear pestañas
+          Sincronizar y cargar Google Sheets
         </button>
       </div>
       <RoleGate allow="venues:delete">
