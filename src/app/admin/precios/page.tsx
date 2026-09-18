@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useEventStore } from "@/context/EventStore";
 import { RoleGate, useCan } from "@/components/auth/RoleGate";
 import { AREA_LABELS, AREA_ORDER } from "@/lib/constants";
@@ -43,20 +43,13 @@ export default function PreciosAdminPage() {
         <h2 className="font-display text-3xl">Precios por área</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {state.prices.map((item) => (
-            <label key={item.areaId} className="text-sm font-medium text-ink-muted">
-              {AREA_LABELS[item.areaId]}
-              <div className="mt-1 flex gap-2">
-                <input
-                  className="field"
-                  type="number"
-                  min={0}
-                  value={item.basePrice}
-                  disabled={!canEdit}
-                  onChange={(e) => void setPrice(item.areaId, Number(e.target.value))}
-                />
-                <span className="self-center text-ink">{money(item.basePrice)}</span>
-              </div>
-            </label>
+            <PriceField
+              key={item.areaId}
+              areaId={item.areaId}
+              value={item.basePrice}
+              disabled={!canEdit}
+              onCommit={(basePrice) => void setPrice(item.areaId, basePrice)}
+            />
           ))}
         </div>
       </section>
@@ -163,5 +156,47 @@ export default function PreciosAdminPage() {
         </ul>
       </section>
     </div>
+  );
+}
+
+function PriceField({
+  areaId,
+  value,
+  disabled,
+  onCommit,
+}: {
+  areaId: AreaId;
+  value: number;
+  disabled: boolean;
+  onCommit: (basePrice: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  return (
+    <label className="text-sm font-medium text-ink-muted">
+      {AREA_LABELS[areaId]}
+      <div className="mt-1 flex gap-2">
+        <input
+          className="field"
+          type="number"
+          min={0}
+          value={draft}
+          disabled={disabled}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            const next = Number(draft);
+            if (!Number.isFinite(next) || next === value) {
+              setDraft(String(value));
+              return;
+            }
+            onCommit(next);
+          }}
+        />
+        <span className="self-center text-ink">{money(Number(draft) || value)}</span>
+      </div>
+    </label>
   );
 }

@@ -1,4 +1,4 @@
-import type { AreaId, SeatSlot } from "../types";
+import type { AreaId, AreaSpec, SeatSlot, VenueTabulador } from "../types";
 import { AREA_LABELS, AREA_ORDER } from "../constants";
 import { canonicalizeSectionId } from "./ids";
 import { mergeRowSpecs, seatsFromSlots, tokenizeSeatLayout } from "./seats";
@@ -80,7 +80,39 @@ export function inferAreaFromSection(sectionId: string): AreaId {
   return "preferente";
 }
 
+export function rehomeSectionsByNumber(tabulador: VenueTabulador): VenueTabulador {
+  const areas = new Map<AreaId, AreaSpec>();
+  for (const id of AREA_ORDER) {
+    const existing = tabulador.areas.find((area) => area.id === id);
+    areas.set(id, {
+      id,
+      name: existing?.name ?? AREA_LABELS[id],
+      colorLabel: existing?.colorLabel ?? AREA_LABELS[id],
+      sections: [],
+    });
+  }
+
+  const sections = new Map<string, AreaSpec["sections"][number]>();
+  for (const area of tabulador.areas) {
+    for (const section of area.sections) {
+      sections.set(section.id, section);
+    }
+  }
+  for (const section of sections.values()) {
+    areas.get(inferAreaFromSection(section.id))?.sections.push(section);
+  }
+
+  return {
+    ...tabulador,
+    areas: AREA_ORDER.map((id) => areas.get(id)!).filter((area) => area.sections.length),
+  };
+}
+
 export function resolveAreaId(raw: string, sectionId: string): AreaId {
+  const n = Number.parseInt(sectionId, 10);
+  if (Number.isFinite(n) && n >= 100 && n < 600) {
+    return inferAreaFromSection(sectionId);
+  }
   const key = normalize(raw);
   if (key.includes("prefer")) return "preferente";
   if (key.includes("lunet")) return "luneta";

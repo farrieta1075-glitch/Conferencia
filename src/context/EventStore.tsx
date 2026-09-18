@@ -30,6 +30,7 @@ import {
   flattenSeats,
   indexSeats,
 } from "@/lib/tabulador/generator";
+import { rehomeSectionsByNumber } from "@/lib/tabulador/xlsx";
 import type {
   AreaId,
   AssignPayload,
@@ -284,6 +285,26 @@ async function syncSheets(state: PersistedState) {
   }
 }
 
+let queuedState: PersistedState | null = null;
+let syncChain = Promise.resolve();
+
+function queueSheetsSync(state: PersistedState) {
+  queuedState = state;
+  syncChain = syncChain
+    .then(async () => {
+      const snapshot = queuedState;
+      if (!snapshot) return;
+      queuedState = null;
+      await syncSheets(snapshot);
+    })
+    .catch(() => undefined);
+}
+
+function withCanonicalAreas(state: PersistedState): PersistedState {
+  if (!state.tabulador?.areas?.length) return state;
+  return { ...state, tabulador: rehomeSectionsByNumber(state.tabulador) };
+}
+
 interface StoreValue {
   state: PersistedState;
   hydrated: boolean;
@@ -313,6 +334,8 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   const [remoteReady, setRemoteReady] = useReducer((_: boolean, value: boolean) => value, false);
   const skipSync = useRef(true);
   const allowSync = useRef(false);
+  const startedRemote = useRef(false);
+  const mutationSeq = useRef(0);
   const syncTimer = useRef<number>(0);
   const canSync = hasPermission(session?.user?.role, "sheets:sync");
 
@@ -322,7 +345,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       if (raw) {
         const parsed = JSON.parse(raw) as PersistedState;
         if (parsed?.tabulador?.areas?.length) {
-          dispatch({ type: "hydrate", state: parsed });
+          dispatch({ type: "hydrate", state: withCanonicalAreas(parsed) });
         }
       }
     } catch (error) {
@@ -333,9 +356,15 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (status !== "authenticated") {
-      if (status === "unauthenticated") setRemoteReady(true);
+      if (status === "unauthenticated") {
+        startedRemote.current = false;
+        setRemoteReady(true);
+      }
       return;
     }
+    if (startedRemote.current) return;
+    startedRemote.current = true;
+    const seq = mutationSeq.current;
     let cancelled = false;
     void apiFetch<{ state?: PersistedState | null; hydrateError?: string }>("/api/sheets?hydrate=1")
       .then((payload) => {
@@ -343,16 +372,17 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         if (payload.hydrateError) {
           console.warn("Google Sheets:", payload.hydrateError);
         }
+        if (mutationSeq.current !== seq) return;
         const incoming = payload.state;
         if (incoming) {
           skipSync.current = true;
           allowSync.current = true;
           dispatch({
             type: "hydrate",
-            state: {
+            state: withCanonicalAreas({
               ...incoming,
               tabulador: incoming.tabulador.areas.length ? incoming.tabulador : state.tabulador,
-            },
+            }),
           });
         }
       })
@@ -365,7 +395,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-    // Solo al autenticar: no rehidratar en cada cambio de estado local.
+    // Solo al autenticar una vez.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status]);
 
@@ -387,7 +417,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
     }
     window.clearTimeout(syncTimer.current);
     syncTimer.current = window.setTimeout(() => {
-      void syncSheets(state);
+      queueSheetsSync(state);
     }, 1200);
     return () => window.clearTimeout(syncTimer.current);
   }, [canSync, hydrated, remoteReady, state, status]);
@@ -405,43 +435,58 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       tabuladorCount: countTabuladorSeats(state.tabulador),
       availableCount,
       setEvent: async (event) => {
+        mutationSeq.current += 1;
         await apiFetch("/api/event", { method: "PATCH", body: JSON.stringify(event) });
         dispatch({ type: "setEvent", event });
-        void syncSheets({ ...state, event });
+        queueSheetsSync({ ...state, event });
       },
       importTabulador: async (tabulador, resetAssignments) => {
-        await apiFetch("/api/import", { method: "POST", body: JSON.stringify({ tabulador }) });
-        dispatch({ type: "setTabulador", tabulador, resetAssignments });
+        mutationSeq.current += 1;
+        const canonical = rehomeSectionsByNumber(tabulador);
+        await apiFetch("/api/import", { method: "POST", body: JSON.stringify({ tabulador: canonical }) });
+        dispatch({ type: "setTabulador", tabulador: canonical, resetAssignments });
       },
       assignSeats: async (payload) => {
+        mutationSeq.current += 1;
         await apiFetch("/api/seats", { method: "PATCH", body: JSON.stringify(payload) });
         dispatch({ type: "assignSeats", payload });
       },
       setPrice: async (areaId, basePrice) => {
+        mutationSeq.current += 1;
+        dispatch({ type: "setPrice", areaId, basePrice });
+        queueSheetsSync({
+          ...state,
+          prices: state.prices.map((item) =>
+            item.areaId === areaId ? { ...item, basePrice } : item,
+          ),
+        });
         await apiFetch("/api/prices", {
           method: "PATCH",
           body: JSON.stringify({ areaId, basePrice }),
         });
-        dispatch({ type: "setPrice", areaId, basePrice });
       },
       upsertPromotion: async (promotion) => {
+        mutationSeq.current += 1;
         await apiFetch("/api/promotions", { method: "POST", body: JSON.stringify(promotion) });
         dispatch({ type: "upsertPromotion", promotion });
       },
       removePromotion: async (id) => {
+        mutationSeq.current += 1;
         await apiFetch(`/api/promotions?id=${encodeURIComponent(id)}`, { method: "DELETE" });
         dispatch({ type: "removePromotion", id });
       },
       buy: async (payload) => {
+        mutationSeq.current += 1;
         const purchase = await buildPurchase(state, payload);
         await apiFetch("/api/purchases", { method: "POST", body: JSON.stringify(purchase) });
         dispatch({ type: "buy", purchase });
-        void syncSheets({
-          ...applySeatStatuses({ ...state, purchases: [purchase, ...state.purchases] }, purchase),
-        });
+        queueSheetsSync(
+          applySeatStatuses({ ...state, purchases: [purchase, ...state.purchases] }, purchase),
+        );
         return purchase;
       },
       updatePurchase: async (id, patch) => {
+        mutationSeq.current += 1;
         await apiFetch(`/api/purchases/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(patch),
@@ -449,6 +494,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "updatePurchase", id, patch });
       },
       applyPayment: async (id, amount, settleAll) => {
+        mutationSeq.current += 1;
         await apiFetch(`/api/purchases/${encodeURIComponent(id)}/pay`, {
           method: "POST",
           body: JSON.stringify({ amount, settleAll }),
@@ -460,6 +506,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "resetVenue" });
       },
       reloadFromSheets: async () => {
+        mutationSeq.current += 1;
         const payload = await apiFetch<{
           state?: PersistedState | null;
           hydrateError?: string;
@@ -477,12 +524,12 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         allowSync.current = true;
         dispatch({
           type: "hydrate",
-          state: {
+          state: withCanonicalAreas({
             ...payload.state,
             tabulador: payload.state.tabulador.areas.length
               ? payload.state.tabulador
               : state.tabulador,
-          },
+          }),
         });
       },
       statusOf: (id) => state.seatStatus[id] ?? "unassigned",

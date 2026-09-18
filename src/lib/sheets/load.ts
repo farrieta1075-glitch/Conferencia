@@ -1,7 +1,7 @@
 import { AREA_LABELS, AREA_ORDER, DEFAULT_PRICES } from "@/lib/constants";
 import { getSheets, getSpreadsheetId, sheetsConfigured } from "@/lib/sheets/client";
 import { canonicalizeSectionId } from "@/lib/tabulador/ids";
-import { resolveAreaId } from "@/lib/tabulador/xlsx";
+import { inferAreaFromSection, rehomeSectionsByNumber, resolveAreaId } from "@/lib/tabulador/xlsx";
 import type {
   AreaId,
   AreaSpec,
@@ -76,11 +76,11 @@ function buildTabulador(
     });
   }
 
-  for (const [areaRaw, sectionRaw, rowId, seatRaw] of data) {
+  for (const [, sectionRaw, rowId, seatRaw] of data) {
     const sectionId = canonicalizeSectionId(sectionRaw ?? "");
-    const areaId = parseAreaId(areaRaw ?? "", sectionId);
     const number = Number(seatRaw);
-    if (!areaId || !sectionId || !rowId || !Number.isFinite(number)) continue;
+    if (!sectionId || !rowId || !Number.isFinite(number)) continue;
+    const areaId = inferAreaFromSection(sectionId);
     const area = areas.get(areaId);
     if (!area) continue;
     let section = area.sections.find((item) => item.id === sectionId);
@@ -200,7 +200,8 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
   const eventDatetime = eventoData[1] || "";
   const officialCapacity = Number(eventoData[2]) || 0;
   const version = eventoData[3] || "sheets";
-  const tabulador = buildTabulador(tabuladorRows, officialCapacity, version);
+  const tabuladorRaw = buildTabulador(tabuladorRows, officialCapacity, version);
+  const tabulador = tabuladorRaw ? rehomeSectionsByNumber(tabuladorRaw) : null;
 
   const hasEvent = Boolean(eventName && eventDatetime);
   const hasTabulador = Boolean(tabulador);

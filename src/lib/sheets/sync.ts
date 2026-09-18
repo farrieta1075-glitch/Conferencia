@@ -43,12 +43,17 @@ export async function syncStateToSheets(state: PersistedState) {
     ],
   ]);
 
+  await writeSheet(spreadsheetId, "Precios!A1", [
+    ["area", "precio_base"],
+    ...state.prices.map((item) => [item.areaId, item.basePrice]),
+  ]);
+
   await writeSheet(spreadsheetId, "Tabulador!A1", [
     ["area", "seccion", "fila", "asiento"],
     ...state.tabulador.areas.flatMap((area) =>
       area.sections.flatMap((section) =>
         section.rows.flatMap((row) =>
-          row.seats.map((number) => [area.name, section.id, row.id, number]),
+          row.seats.map((number) => [area.id, section.id, row.id, number]),
         ),
       ),
     ),
@@ -57,11 +62,6 @@ export async function syncStateToSheets(state: PersistedState) {
   await writeSheet(spreadsheetId, "Disponibilidad!A1", [
     ["asiento_id", "estatus"],
     ...Object.entries(state.seatStatus),
-  ]);
-
-  await writeSheet(spreadsheetId, "Precios!A1", [
-    ["area", "precio_base"],
-    ...state.prices.map((item) => [item.areaId, item.basePrice]),
   ]);
 
   await writeSheet(spreadsheetId, "Promociones!A1", [
