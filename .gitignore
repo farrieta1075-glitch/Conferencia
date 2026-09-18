@@ -1,0 +1,27 @@
+# dependencies
+node_modules
+
+# next / build
+.next
+out
+dist
+build
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+.turbo
+
+# env and secrets
+.env
+.env*.local
+.auth-users.local
+*service-account*.json
+*-sa.json
+
+# local runtime data
+data/users.json
+data/config.json
+
+# logs and OS
+*.log
+.DS_Store
+.vercel

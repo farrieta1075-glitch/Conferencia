@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #0b132b;
+  --color-navy-mid: #1c2541;
+  --color-navy-deep: #060b18;
+  --color-bronze: #9a6b43;
+  --color-bronze-dark: #8c5a32;
+  --color-surface: #f8fafc;
+  --color-ink: #0f172a;
+  --color-ink-muted: #334155;
+  --color-available: #16a34a;
+  --color-held: #d97706;
+  --color-sold: #dc2626;
+  --color-unassigned: #cbd5e1;
+  --font-sans: var(--font-dm), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-cormorant), ui-serif, Georgia, serif;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: #0b132b;
+  color: #0f172a;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.min-touch {
+  min-height: 48px;
+  min-width: 48px;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 1.25rem;
+  box-shadow: 0 10px 30px rgba(11, 19, 43, 0.08);
+}
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.9rem;
+  background: #8c5a32;
+  color: white;
+  font-weight: 600;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.btn-primary:hover {
+  background: #9a6b43;
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.9rem;
+  background: #1c2541;
+  color: white;
+  font-weight: 600;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0.75rem 1.1rem;
+  border-radius: 0.9rem;
+  border: 1px solid #cbd5e1;
+  background: white;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.field {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 0.9rem;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  padding: 0.7rem 0.9rem;
+  color: #0f172a;
+}
+
+.field:focus {
+  outline: 2px solid #9a6b43;
+  outline-offset: 1px;
+  background: white;
+}
