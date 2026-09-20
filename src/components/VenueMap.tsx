@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEventStore } from "@/context/EventStore";
 import { useSalesFocus } from "@/context/SalesFocus";
 import { COLORS, MAP } from "@/lib/constants";
@@ -15,7 +14,7 @@ import {
   stagePath,
   walkwayPath,
 } from "@/lib/geometry";
-import { boundsOf, findNeighbors, sectionAtPoint, viewToMap } from "@/lib/mapView";
+import { boundsOf, sectionAtPoint, sectionOverlapsView, viewMapBounds, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
 import { sortedRows } from "@/lib/tabulador/seats";
@@ -44,11 +43,7 @@ function sectionHasSale(
   statusOf: (id: string) => SeatStatus,
   seatIndex: Map<string, { sectionId: string }>,
 ) {
-  for (const [id, seat] of seatIndex) {
-    if (seat.sectionId !== sectionId) continue;
-    if (statusOf(id) !== "unassigned") return true;
-  }
-  return false;
+  return countAvailable(sectionId, statusOf, seatIndex) > 0;
 }
 
 function countAvailable(
@@ -68,7 +63,6 @@ interface VenueMapProps {
 }
 
 export function VenueMap({ focusSectionId = null }: VenueMapProps) {
-  const router = useRouter();
   const { state, statusOf, seatIndex } = useEventStore();
   const salesFocus = useSalesFocus();
   const setFocus = salesFocus?.setFocus;
@@ -113,23 +107,17 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     transform,
   );
   const hovered = sectionAtPoint(geometries, probe.x, probe.y) ?? sectionAtPoint(geometries, viewCenter.x, viewCenter.y);
-  const activeId = focusSectionId || (transform.k >= 1.35 ? hovered?.sectionId ?? null : null);
-  const neighbors = useMemo(
-    () => (activeId ? findNeighbors(geometries, activeId) : {}),
-    [activeId, geometries],
-  );
+  const activeId = hovered?.sectionId ?? null;
 
   const seatSections = useMemo(() => {
     const ids = new Set<string>();
-    if (transform.k < 1.35) return ids;
-    if (activeId) ids.add(activeId);
-    if (transform.k >= 1.7) {
-      for (const neighbor of Object.values(neighbors)) {
-        if (neighbor) ids.add(neighbor.sectionId);
-      }
+    if (transform.k < 1.55) return ids;
+    const vis = viewMapBounds(transform);
+    for (const geo of geometries) {
+      if (sectionOverlapsView(geo, vis)) ids.add(geo.sectionId);
     }
     return ids;
-  }, [activeId, neighbors, transform.k]);
+  }, [geometries, transform]);
 
   useEffect(() => {
     if (!setFocus || !clearFocus) return;
@@ -144,17 +132,43 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     });
   }, [activeId, clearFocus, seatIndex, setFocus, statusOf, transform.k]);
 
-  useEffect(() => {
-    if (!focusSectionId) return;
-    const geo = geometries.find((item) => item.sectionId === focusSectionId);
+  function zoomToSection(sectionId: string) {
+    const geo = geometries.find((item) => item.sectionId === sectionId);
     if (!geo) return;
-    const nearby = findNeighbors(geometries, focusSectionId);
-    const cluster = [geo, nearby.left, nearby.right, nearby.inward, nearby.outward].filter(
-      (item): item is SectionGeometry => Boolean(item),
-    );
-    const box = boundsOf(cluster);
+    const packed = layouts.get(sectionId);
+    const points: { x: number; y: number }[] = [];
+    if (packed) {
+      packed.rows.forEach((row, rowIndex) => {
+        for (const item of packed.align.rows[rowIndex] ?? []) {
+          if (item.slot.kind !== "seat") continue;
+          const id = seatId(sectionId, row.id, item.slot.number);
+          if (statusOf(id) !== "available") continue;
+          points.push(polarAtFraction(geo, rowIndex, packed.rows.length, item.t));
+        }
+      });
+    }
+    if (points.length) {
+      const pad = 36;
+      fitBounds(
+        Math.min(...points.map((point) => point.x)) - pad,
+        Math.min(...points.map((point) => point.y)) - pad,
+        Math.max(...points.map((point) => point.x)) + pad,
+        Math.max(...points.map((point) => point.y)) + pad,
+      );
+      return;
+    }
+    const box = boundsOf([geo]);
     fitBounds(box.minX, box.minY, box.maxX, box.maxY);
-  }, [fitBounds, focusSectionId, geometries]);
+  }
+
+  const fittedFromUrl = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusSectionId || !geometries.length) return;
+    if (fittedFromUrl.current === focusSectionId) return;
+    fittedFromUrl.current = focusSectionId;
+    zoomToSection(focusSectionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusSectionId, geometries, layouts]);
 
   const selectedSet = new Set(selected);
   const selectedSeats = selected
@@ -166,7 +180,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   );
 
   function focusSection(sectionId: string) {
-    router.replace(`/?s=${encodeURIComponent(sectionId)}`);
+    zoomToSection(sectionId);
   }
 
   function toggleSeat(id: string, status: SeatStatus) {
@@ -180,15 +194,14 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     setSelected([]);
     clearFocus?.();
     reset();
-    router.replace("/");
   }
 
   return (
-    <div className="card overflow-hidden">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+    <div className="card flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
         <div>
           <p className="text-xs uppercase tracking-wider text-bronze-dark">Mapa general</p>
-          <h2 className="font-display text-2xl text-ink">Auditorio Nacional</h2>
+          <h2 className="font-display text-xl text-ink lg:text-2xl">Auditorio Nacional</h2>
         </div>
         <div className="flex gap-2">
           <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.35)}>
@@ -202,10 +215,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           </button>
         </div>
       </div>
-      <div className="relative bg-navy-deep">
+      <div className="relative min-h-0 flex-1 bg-navy-deep">
         <svg
           viewBox={`${MAP.viewX} ${MAP.viewY} ${MAP.viewW} ${MAP.viewH}`}
-          className="h-[min(calc(100dvh-8.5rem),860px)] w-full cursor-grab touch-none active:cursor-grabbing max-[1100px]:landscape:h-[calc(100dvh-6.5rem)] lg:h-[min(78vh,860px)]"
+          className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
           onPointerDown={(event) => {
             const svg = event.currentTarget;
             const rect = svg.getBoundingClientRect();
@@ -214,7 +227,14 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             setProbe(viewToMap(vx, vy, transform));
             onPointerDown(event);
           }}
-          onPointerMove={onPointerMove}
+          onPointerMove={(event) => {
+            const svg = event.currentTarget;
+            const rect = svg.getBoundingClientRect();
+            const vx = MAP.viewX + ((event.clientX - rect.left) / rect.width) * MAP.viewW;
+            const vy = MAP.viewY + ((event.clientY - rect.top) / rect.height) * MAP.viewH;
+            setProbe(viewToMap(vx, vy, transform));
+            onPointerMove(event);
+          }}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
           onWheel={(event) => {
@@ -328,12 +348,12 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               {item.label}
             </li>
           ))}
-          <li className="text-white/70">Toca un asiento para seleccionar · pellizca o + / −</li>
+          <li className="text-white/70">Toca una zona para acercar sus asientos disponibles</li>
         </ul>
       </div>
       <RoleGate allow="sales:create">
         {!!selected.length && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3">
             <p className="text-sm text-ink-muted">
               {selected.length} asiento(s) · {money(total)}. Toca de nuevo para quitar.
             </p>

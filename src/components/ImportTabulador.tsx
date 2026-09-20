@@ -21,7 +21,7 @@ export function ImportTabulador() {
   const { state, importTabulador, tabuladorCount } = useEventStore();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [resetAssignments, setResetAssignments] = useState(true);
+  const [resetAssignments, setResetAssignments] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function onFile(file: File) {
@@ -75,7 +75,7 @@ export function ImportTabulador() {
             checked={resetAssignments}
             onChange={(e) => setResetAssignments(e.target.checked)}
           />
-          Reiniciar disponibilidad al importar (Preferente y Luneta a la venta)
+          Reiniciar disponibilidad al importar (todos los asientos quedan sin venta)
         </label>
         <div className="mt-3 flex flex-wrap gap-2">
           <label className={`btn-primary cursor-pointer ${busy ? "opacity-60" : ""}`}>

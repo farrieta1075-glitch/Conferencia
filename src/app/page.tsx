@@ -6,12 +6,16 @@ import { VenueMap } from "@/components/VenueMap";
 
 function SalesMap() {
   const params = useSearchParams();
-  return <VenueMap focusSectionId={params.get("s")} />;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <VenueMap focusSectionId={params.get("s")} />
+    </div>
+  );
 }
 
 export default function VentaPage() {
   return (
-    <Suspense fallback={<div className="card h-[min(70vh,760px)] bg-navy-deep" />}>
+    <Suspense fallback={<div className="card min-h-0 flex-1 bg-navy-deep" />}>
       <SalesMap />
     </Suspense>
   );

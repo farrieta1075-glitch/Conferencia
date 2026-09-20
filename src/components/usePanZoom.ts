@@ -98,6 +98,11 @@ export function usePanZoom(
       const prev = transformRef.current;
       pinch.current = { dist, k: prev.k, x: prev.x, y: prev.y, vx: mid.x, vy: mid.y };
       suppressClick.current = true;
+      try {
+        svg.setPointerCapture(event.pointerId);
+      } catch {
+        // ignore
+      }
       return;
     }
 

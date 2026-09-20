@@ -14,7 +14,6 @@ import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
 import { hasPermission } from "@/lib/auth/roles";
 import { AREA_ORDER, DEFAULT_PRICES, STORAGE_KEY } from "@/lib/constants";
-import { seatId } from "@/lib/format";
 import { buildInstallmentPlans } from "@/lib/installments";
 import { notificationHooks } from "@/lib/notifications";
 import { priceForSeat } from "@/lib/pricing";
@@ -69,23 +68,13 @@ type Action =
   | { type: "buy"; purchase: Purchase }
   | { type: "updatePurchase"; id: string; patch: PurchasePatch }
   | { type: "applyPayment"; id: string; amount: number; settleAll?: boolean }
+  | { type: "setSeatStatus"; seatStatus: Record<string, SeatStatus> }
   | { type: "resetVenue" };
 
 const defaultTabulador = buildDefaultTabulador();
 
-function seedSeatStatus(tabulador: VenueTabulador): Record<string, SeatStatus> {
-  const status: Record<string, SeatStatus> = {};
-  for (const area of tabulador.areas) {
-    if (area.id !== "preferente" && area.id !== "luneta") continue;
-    for (const section of area.sections) {
-      for (const row of section.rows) {
-        for (const number of row.seats) {
-          status[seatId(section.id, row.id, number)] = "available";
-        }
-      }
-    }
-  }
-  return status;
+function seedSeatStatus(_tabulador: VenueTabulador): Record<string, SeatStatus> {
+  return {};
 }
 
 function createDefaultState(): PersistedState {
@@ -267,6 +256,8 @@ function reducer(state: PersistedState, action: Action): PersistedState {
       const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
       return applySeatStatuses({ ...state, purchases }, updated);
     }
+    case "setSeatStatus":
+      return { ...state, seatStatus: action.seatStatus };
     case "resetVenue":
       return createDefaultState();
     default:
@@ -381,6 +372,7 @@ interface StoreValue {
   buy: (payload: BuyPayload) => Promise<Purchase>;
   updatePurchase: (id: string, patch: PurchasePatch) => Promise<void>;
   applyPayment: (id: string, amount: number, settleAll?: boolean) => Promise<void>;
+  saveSeatAssignments: (seatStatus: Record<string, SeatStatus>) => Promise<void>;
   resetVenue: () => Promise<void>;
   reloadFromSheets: () => Promise<void>;
   statusOf: (id: string) => SeatStatus;
@@ -569,10 +561,6 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       },
       assignSeats: async (payload) => {
         dispatch({ type: "assignSeats", payload });
-        const seatPatch = Object.fromEntries(
-          payload.seatIds.map((id) => [id, payload.status]),
-        ) as Record<string, SeatStatus>;
-        queueSheets({ seatPatch });
       },
       setPrice: async (areaId, basePrice) => {
         dispatch({ type: "setPrice", areaId, basePrice });
@@ -624,6 +612,22 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         await apiFetch(`/api/purchases/${encodeURIComponent(id)}/pay`, {
           method: "POST",
           body: JSON.stringify({ amount, settleAll }),
+        });
+      },
+      saveSeatAssignments: async (seatStatus) => {
+        const next: Record<string, SeatStatus> = {};
+        for (const [id, status] of Object.entries(seatStatus)) {
+          if (status && status !== "unassigned") next[id] = status;
+        }
+        for (const [id, status] of Object.entries(stateRef.current.seatStatus)) {
+          if (status === "held" || status === "sold") next[id] = status;
+        }
+        dispatch({ type: "setSeatStatus", seatStatus: next });
+        stateRef.current = { ...stateRef.current, seatStatus: next };
+        sheetsReady.current = true;
+        await syncSheets({
+          seatStatus: next,
+          forceSeatStatus: true,
         });
       },
       resetVenue: async () => {

@@ -22,6 +22,7 @@ interface CurvedSeatMapProps {
   sectionId: string;
   selectedIds?: string[];
   onSeatClick?: (id: string, status: SeatStatus) => void;
+  statusOf?: (id: string) => SeatStatus;
 }
 
 function detailGeometry(
@@ -57,8 +58,10 @@ export function CurvedSeatMap({
   sectionId,
   selectedIds = [],
   onSeatClick,
+  statusOf: statusOfProp,
 }: CurvedSeatMapProps) {
-  const { state, statusOf } = useEventStore();
+  const { state, statusOf: statusOfStore } = useEventStore();
+  const statusOf = statusOfProp ?? statusOfStore;
   const viewRef = useRef({ x: 0, y: 0, w: 800, h: 600 });
   const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset } =
     usePanZoom({ x: 0, y: 0, k: 1 }, viewRef);

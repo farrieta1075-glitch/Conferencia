@@ -91,3 +91,28 @@ export function boundsOf(geos: SectionGeometry[]) {
     maxY: Math.max(...ys),
   };
 }
+
+export function viewMapBounds(transform: { x: number; y: number; k: number }) {
+  const a = viewToMap(MAP.viewX, MAP.viewY, transform);
+  const b = viewToMap(MAP.viewX + MAP.viewW, MAP.viewY + MAP.viewH, transform);
+  return {
+    minX: Math.min(a.x, b.x),
+    maxX: Math.max(a.x, b.x),
+    minY: Math.min(a.y, b.y),
+    maxY: Math.max(a.y, b.y),
+  };
+}
+
+export function sectionOverlapsView(
+  geo: SectionGeometry,
+  view: { minX: number; maxX: number; minY: number; maxY: number },
+  pad = 28,
+) {
+  const box = boundsOf([geo]);
+  return (
+    box.maxX >= view.minX - pad &&
+    box.minX <= view.maxX + pad &&
+    box.maxY >= view.minY - pad &&
+    box.minY <= view.maxY + pad
+  );
+}

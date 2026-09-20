@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CurvedSeatMap } from "@/components/CurvedSeatMap";
 import { ImportTabulador } from "@/components/ImportTabulador";
 import { SeatLegend } from "@/components/SeatLegend";
@@ -12,10 +12,20 @@ import { sortedRows } from "@/lib/tabulador/seats";
 import type { SeatStatus } from "@/lib/types";
 
 export default function AsientosAdminPage() {
-  const { state, assignSeats } = useEventStore();
+  const { state, saveSeatAssignments } = useEventStore();
   const canEdit = useCan("seats:edit");
   const [sectionId, setSectionId] = useState(state.tabulador.areas[0]?.sections[0]?.id ?? "105");
+  const [draft, setDraft] = useState<Record<string, SeatStatus>>(state.seatStatus);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
   const located = findSection(state.tabulador, sectionId);
+
+  useEffect(() => {
+    if (dirty) return;
+    setDraft(state.seatStatus);
+  }, [dirty, state.seatStatus]);
 
   const sectionSeatIds = useMemo(() => {
     if (!located) return [];
@@ -24,17 +34,51 @@ export default function AsientosAdminPage() {
     );
   }, [located]);
 
-  function toggle(id: string, status: SeatStatus) {
-    if (!canEdit || status === "held" || status === "sold") return;
-    void assignSeats({
-      seatIds: [id],
-      status: status === "available" ? "unassigned" : "available",
-    });
+  function statusOfDraft(id: string): SeatStatus {
+    return draft[id] ?? "unassigned";
   }
 
-  function setMany(ids: string[], status: "available" | "unassigned") {
+  function applyStatus(ids: string[], status: "available" | "unassigned") {
     if (!canEdit) return;
-    void assignSeats({ seatIds: ids, status });
+    setDraft((current) => {
+      const next = { ...current };
+      for (const id of ids) {
+        const now = next[id] ?? "unassigned";
+        if (now === "held" || now === "sold") continue;
+        if (status === "unassigned") delete next[id];
+        else next[id] = "available";
+      }
+      return next;
+    });
+    setDirty(true);
+    setMessage("");
+    setError("");
+  }
+
+  function toggle(id: string, status: SeatStatus) {
+    if (!canEdit || status === "held" || status === "sold") return;
+    applyStatus([id], status === "available" ? "unassigned" : "available");
+  }
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    try {
+      await saveSeatAssignments(draft);
+      setDirty(false);
+      setMessage("Disponibilidad guardada. El módulo de venta ya muestra solo estos asientos.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar en Google Sheets");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function discard() {
+    setDraft(state.seatStatus);
+    setDirty(false);
+    setMessage("Cambios descartados.");
+    setError("");
   }
 
   return (
@@ -43,8 +87,8 @@ export default function AsientosAdminPage() {
         <p className="text-xs uppercase tracking-wider text-bronze-dark">Módulo 2 · Admin</p>
         <h2 className="font-display text-3xl">Asignación de áreas y asientos</h2>
         <p className="mt-2 text-sm text-ink-muted">
-          Verde = a la venta. Gris = no asignado. Los asientos vendidos o apartados no se pueden
-          devolver a inventario desde aquí.
+          Verde = a la venta. Gris = no asignado. Los cambios son un borrador hasta pulsar{" "}
+          <strong>Guardar disponibilidad</strong>; solo entonces aparecen en el módulo de venta.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {state.tabulador.areas.map((area) => (
@@ -74,36 +118,52 @@ export default function AsientosAdminPage() {
             <button
               type="button"
               className="btn-primary"
-              onClick={() => setMany(sectionSeatIds, "available")}
+              onClick={() => applyStatus(sectionSeatIds, "available")}
             >
               Toda la sección a la venta
             </button>
             <button
               type="button"
               className="btn-ghost"
-              onClick={() => setMany(sectionSeatIds, "unassigned")}
+              onClick={() => applyStatus(sectionSeatIds, "unassigned")}
             >
               Quitar sección de venta
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!dirty || saving}
+              onClick={() => void save()}
+            >
+              {saving ? "Guardando…" : "Guardar disponibilidad"}
+            </button>
+            <button type="button" className="btn-ghost" disabled={!dirty || saving} onClick={discard}>
+              Descartar
             </button>
           </RoleGate>
           {located && canEdit
             ? sortedRows(located.section.rows).map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className="btn-ghost px-3"
-              onClick={() =>
-                setMany(
-                  row.seats.map((number) => seatId(located.section.id, row.id, number)),
-                  "available",
-                )
-              }
-            >
-              Fila {row.id}
-            </button>
-          ))
+                <button
+                  key={row.id}
+                  type="button"
+                  className="btn-ghost px-3"
+                  onClick={() =>
+                    applyStatus(
+                      row.seats.map((number) => seatId(located.section.id, row.id, number)),
+                      "available",
+                    )
+                  }
+                >
+                  Fila {row.id}
+                </button>
+              ))
             : null}
         </div>
+        {dirty ? (
+          <p className="mt-3 text-sm text-held">Hay cambios sin guardar. Aún no se ven en venta.</p>
+        ) : null}
+        {message ? <p className="mt-3 text-sm text-available">{message}</p> : null}
+        {error ? <p className="mt-3 text-sm text-sold">{error}</p> : null}
       </div>
       <SeatLegend />
       {located && (
@@ -112,6 +172,7 @@ export default function AsientosAdminPage() {
             sectionId={sectionId}
             selectedIds={[]}
             onSeatClick={toggle}
+            statusOf={statusOfDraft}
           />
         </div>
       )}

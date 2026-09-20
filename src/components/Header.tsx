@@ -41,7 +41,7 @@ function Unit({ value, label }: { value: number; label: string }) {
   );
 }
 
-export function Header() {
+export function Header({ compact = false }: { compact?: boolean }) {
   const { state, availableCount } = useEventStore();
   const { data: session } = useSession();
   const focus = useSalesFocus();
@@ -55,9 +55,15 @@ export function Header() {
     : "Venta";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-navy/95 text-white backdrop-blur max-[1100px]:landscape:static">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between max-[1100px]:landscape:flex-row max-[1100px]:landscape:items-center max-[1100px]:landscape:gap-2 max-[1100px]:landscape:py-2">
-        <div className="flex min-h-12 items-center gap-3 max-[1100px]:landscape:min-h-10">
+    <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-navy/95 text-white backdrop-blur">
+      <div
+        className={`mx-auto flex max-w-7xl px-4 ${
+          compact
+            ? "flex-row items-center justify-between gap-3 py-2"
+            : "flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between max-[1100px]:landscape:flex-row max-[1100px]:landscape:items-center max-[1100px]:landscape:gap-2 max-[1100px]:landscape:py-2"
+        }`}
+      >
+        <div className={`flex min-h-12 items-center gap-3 ${compact ? "min-h-10" : "max-[1100px]:landscape:min-h-10"}`}>
           {state.event.logoDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -78,47 +84,56 @@ export function Header() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 max-[1100px]:landscape:hidden">
-          <div className="flex min-h-12 items-center justify-between rounded-2xl bg-navy-mid px-3 py-2 sm:block">
-            <p className="text-[10px] uppercase tracking-wider text-slate-300">Ahora</p>
-            <p className="text-sm font-semibold tabular-nums">
-              {now ? formatLiveClock(now) : "—"}
-            </p>
-          </div>
-
-          <div className="flex min-h-12 items-center justify-between gap-2 rounded-2xl bg-navy-mid px-3 py-2">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-slate-300">
-                Cuenta regresiva
-              </p>
-              {!count ? (
-                <p className="text-sm font-semibold tabular-nums text-slate-300">—</p>
-              ) : count.expired ? (
-                <p className="text-sm font-semibold text-bronze">Evento en curso</p>
-              ) : (
-                <div className="mt-1 flex gap-2">
-                  <Unit value={count.days} label="días" />
-                  <Unit value={count.hours} label="hrs" />
-                  <Unit value={count.minutes} label="min" />
-                  <Unit value={count.seconds} label="seg" />
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex min-h-12 items-center justify-between rounded-2xl bg-bronze px-4 py-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)]">
+        {compact ? (
+          <div className="flex min-h-10 items-center rounded-2xl bg-bronze px-3 py-1.5 text-white">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-white/80">
-                {focus?.sectionId ? `Disponibles · ${focus.sectionId}` : "Lugares disponibles"}
+                {focus?.sectionId ? `Disponibles · ${focus.sectionId}` : "Disponibles"}
               </p>
-              <p className="font-display text-3xl leading-none">{shownAvailable}</p>
+              <p className="font-display text-2xl leading-none">{shownAvailable}</p>
             </div>
-            <span className="text-xs font-semibold uppercase tracking-wide">{availabilityLabel}</span>
           </div>
-        </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 max-[1100px]:landscape:hidden">
+            <div className="flex min-h-12 items-center justify-between rounded-2xl bg-navy-mid px-3 py-2 sm:block">
+              <p className="text-[10px] uppercase tracking-wider text-slate-300">Ahora</p>
+              <p className="text-sm font-semibold tabular-nums">
+                {now ? formatLiveClock(now) : "—"}
+              </p>
+            </div>
+            <div className="flex min-h-12 items-center justify-between gap-2 rounded-2xl bg-navy-mid px-3 py-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-slate-300">
+                  Cuenta regresiva
+                </p>
+                {!count ? (
+                  <p className="text-sm font-semibold tabular-nums text-slate-300">—</p>
+                ) : count.expired ? (
+                  <p className="text-sm font-semibold text-bronze">Evento en curso</p>
+                ) : (
+                  <div className="mt-1 flex gap-2">
+                    <Unit value={count.days} label="días" />
+                    <Unit value={count.hours} label="hrs" />
+                    <Unit value={count.minutes} label="min" />
+                    <Unit value={count.seconds} label="seg" />
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex min-h-12 items-center justify-between rounded-2xl bg-bronze px-4 py-2 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.15)]">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-white/80">
+                  {focus?.sectionId ? `Disponibles · ${focus.sectionId}` : "Lugares disponibles"}
+                </p>
+                <p className="font-display text-3xl leading-none">{shownAvailable}</p>
+              </div>
+              <span className="text-xs font-semibold uppercase tracking-wide">{availabilityLabel}</span>
+            </div>
+          </div>
+        )}
         {session?.user && (
-          <div className="flex items-center justify-between gap-3 rounded-2xl bg-navy-mid px-3 py-2 lg:flex-col lg:items-end">
-            <div className="text-right">
+          <div className={`flex items-center gap-3 rounded-2xl bg-navy-mid px-3 py-2 ${compact ? "" : "justify-between lg:flex-col lg:items-end"}`}>
+            <div className={compact ? "hidden sm:block" : "text-right"}>
               <p className="text-sm font-semibold">{session.user.email}</p>
               <p className="text-[10px] uppercase tracking-wider text-bronze">
                 {session.user.role ? roleLabel(session.user.role) : ""}
