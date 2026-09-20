@@ -37,14 +37,20 @@ const AREA_ALIASES: Record<string, AreaId> = {
   p2: "segundo-piso",
 };
 
+function normalizeAreaKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
 function parseAreaId(value: string, sectionId = ""): AreaId | null {
   const raw = value.trim();
   if (!raw && !sectionId) return null;
-  const key = raw.toLowerCase();
+  const key = normalizeAreaKey(raw);
   if (AREA_ALIASES[key]) return AREA_ALIASES[key];
-  const byLabel = AREA_ORDER.find(
-    (id) => AREA_LABELS[id].toLowerCase() === key,
-  );
+  const byLabel = AREA_ORDER.find((id) => normalizeAreaKey(AREA_LABELS[id]) === key);
   if (byLabel) return byLabel;
   if ((AREA_ORDER as string[]).includes(key)) return key as AreaId;
   if (sectionId) return resolveAreaId(raw, sectionId);
@@ -260,4 +266,16 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
     promotions,
     purchases: buildPurchases(ventas, boletos, parcialidades),
   };
+}
+
+export async function readSeatStatusFromSheets(
+  spreadsheetId: string,
+): Promise<Record<string, SeatStatus>> {
+  const [disponibilidad] = await readRanges(spreadsheetId, ["Disponibilidad!A1:B"]);
+  const seatStatus: Record<string, SeatStatus> = {};
+  for (const [id, statusRaw] of disponibilidad.slice(1)) {
+    const status = parseSeatStatus(statusRaw);
+    if (id && status) seatStatus[id] = status;
+  }
+  return seatStatus;
 }

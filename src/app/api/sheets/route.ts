@@ -7,7 +7,7 @@ import {
   sheetsConfigured,
 } from "@/lib/sheets/client";
 import { loadStateFromSheets } from "@/lib/sheets/load";
-import { syncStateToSheets } from "@/lib/sheets/sync";
+import { applySheetsDelta, syncStateToSheets, type SheetsDelta } from "@/lib/sheets/sync";
 import type { PersistedState } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -50,11 +50,13 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       spreadsheetId?: string;
       state?: PersistedState;
+      delta?: SheetsDelta;
+      writeTabulador?: boolean;
     };
     if (body.spreadsheetId?.trim() && !process.env.GOOGLE_SHEETS_ID?.trim()) {
       await saveSpreadsheetId(body.spreadsheetId.trim());
     }
-    if (!body.state) {
+    if (!body.state && !body.delta) {
       const spreadsheetId = await getSpreadsheetId();
       if (spreadsheetId && sheetsConfigured()) {
         await ensureTabs(spreadsheetId);
@@ -65,7 +67,11 @@ export async function POST(request: Request) {
         readOnlyId: Boolean(process.env.GOOGLE_SHEETS_ID?.trim() || process.env.VERCEL),
       });
     }
-    const result = await syncStateToSheets(body.state);
+    const result = body.delta
+      ? await applySheetsDelta(body.delta)
+      : await syncStateToSheets(body.state as PersistedState, {
+          writeTabulador: Boolean(body.writeTabulador),
+        });
     return NextResponse.json(result);
   } catch (error) {
     return jsonError(error);
