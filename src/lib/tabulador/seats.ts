@@ -51,6 +51,25 @@ export function seatsFromSlots(slots: SeatSlot[]): number[] {
   return seats;
 }
 
+export function serializeSeatLayout(slots: SeatSlot[]): string {
+  return slots
+    .map((slot) => {
+      if (slot.kind === "seat") return String(slot.number);
+      if (slot.kind === "aisle") return `- ${slot.id}-`;
+      if (slot.kind === "clear") return "- C -";
+      return "- E -";
+    })
+    .join(",");
+}
+
+export function looksLikeSeatLayout(value: string): boolean {
+  const text = value.trim();
+  if (!text) return false;
+  if (/,|p\s*1|p\s*2|pasillo|- *c *-|- *e *-/i.test(text)) return true;
+  if (/\b[CE]\b/i.test(text) && !/^\d+$/.test(text)) return true;
+  return false;
+}
+
 export function rowSlots(row: RowSpec): SeatSlot[] {
   if (row.slots && row.slots.length) return row.slots;
   return row.seats.map((number) => ({ kind: "seat" as const, number }));

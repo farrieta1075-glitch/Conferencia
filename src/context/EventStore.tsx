@@ -30,7 +30,7 @@ import {
   flattenSeats,
   indexSeats,
 } from "@/lib/tabulador/generator";
-import { rehomeSectionsByNumber } from "@/lib/tabulador/xlsx";
+import { rehomeSectionsByNumber, tabuladorHasLayout } from "@/lib/tabulador/xlsx";
 import type {
   AreaId,
   AssignPayload,
@@ -352,6 +352,15 @@ function hasPending(pending: PendingSheets) {
   );
 }
 
+function preferSlottedTabulador(
+  incoming: VenueTabulador,
+  current: VenueTabulador,
+): VenueTabulador {
+  if (!incoming?.areas?.length) return current;
+  if (tabuladorHasLayout(incoming) || !tabuladorHasLayout(current)) return incoming;
+  return current;
+}
+
 function withCanonicalAreas(state: PersistedState): PersistedState {
   if (!state.tabulador?.areas?.length) return state;
   return { ...state, tabulador: rehomeSectionsByNumber(state.tabulador) };
@@ -484,9 +493,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         type: "hydrate",
         state: withCanonicalAreas({
           ...incoming,
-          tabulador: incoming.tabulador?.areas?.length
-            ? incoming.tabulador
-            : stateRef.current.tabulador,
+          tabulador: preferSlottedTabulador(
+            incoming.tabulador,
+            stateRef.current.tabulador,
+          ),
         }),
       });
     }
@@ -536,12 +546,25 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       },
       importTabulador: async (tabulador, resetAssignments) => {
         const canonical = rehomeSectionsByNumber(tabulador);
+        const nextStatus = resetAssignments
+          ? seedSeatStatus(canonical)
+          : pruneStatus(stateRef.current.seatStatus, canonical);
         await apiFetch("/api/import", { method: "POST", body: JSON.stringify({ tabulador: canonical }) });
         dispatch({ type: "setTabulador", tabulador: canonical, resetAssignments });
-        queueSheets({
-          tabulador: true,
-          event: true,
-          replaceSeatStatus: Boolean(resetAssignments),
+        stateRef.current = {
+          ...stateRef.current,
+          tabulador: canonical,
+          seatStatus: nextStatus,
+        };
+        sheetsReady.current = true;
+        await syncSheets({
+          event: stateRef.current.event,
+          officialCapacity: canonical.officialCapacity,
+          version: canonical.version,
+          tabulador: canonical,
+          writeTabulador: true,
+          seatStatus: resetAssignments ? nextStatus : undefined,
+          forceSeatStatus: Boolean(resetAssignments),
         });
       },
       assignSeats: async (payload) => {
@@ -629,9 +652,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           type: "hydrate",
           state: withCanonicalAreas({
             ...payload.state,
-            tabulador: payload.state.tabulador.areas.length
-              ? payload.state.tabulador
-              : state.tabulador,
+            tabulador: preferSlottedTabulador(payload.state.tabulador, state.tabulador),
           }),
         });
       },

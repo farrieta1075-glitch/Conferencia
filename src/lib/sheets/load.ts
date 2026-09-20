@@ -2,6 +2,7 @@ import { AREA_LABELS, AREA_ORDER, DEFAULT_PRICES } from "@/lib/constants";
 import { getSheets, getSpreadsheetId, sheetsConfigured } from "@/lib/sheets/client";
 import { canonicalizeSectionId } from "@/lib/tabulador/ids";
 import { inferAreaFromSection, rehomeSectionsByNumber, resolveAreaId } from "@/lib/tabulador/xlsx";
+import { looksLikeSeatLayout, seatsFromSlots, tokenizeSeatLayout } from "@/lib/tabulador/seats";
 import type {
   AreaId,
   AreaSpec,
@@ -82,10 +83,9 @@ function buildTabulador(
     });
   }
 
-  for (const [, sectionRaw, rowId, seatRaw] of data) {
+  for (const [, sectionRaw, rowId, seatRaw, orderRaw] of data) {
     const sectionId = canonicalizeSectionId(sectionRaw ?? "");
-    const number = Number(seatRaw);
-    if (!sectionId || !rowId || !Number.isFinite(number)) continue;
+    if (!sectionId || !rowId) continue;
     const areaId = inferAreaFromSection(sectionId);
     const area = areas.get(areaId);
     if (!area) continue;
@@ -99,6 +99,20 @@ function buildTabulador(
       row = { id: rowId, seats: [], slots: [] };
       section.rows.push(row);
     }
+    const order = Number(orderRaw);
+    if (Number.isFinite(order)) row.order = order;
+
+    if (looksLikeSeatLayout(seatRaw ?? "")) {
+      const slots = tokenizeSeatLayout(seatRaw);
+      if (slots.length) {
+        row.slots = slots;
+        row.seats = seatsFromSlots(slots);
+      }
+      continue;
+    }
+
+    const number = Number(seatRaw);
+    if (!Number.isFinite(number)) continue;
     if (!row.seats.includes(number)) {
       row.seats.push(number);
       row.slots = [...(row.slots ?? []), { kind: "seat", number }];
@@ -192,7 +206,7 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
     parcialidades,
   ] = await readRanges(spreadsheetId, [
     "Evento!A1:D10",
-    "Tabulador!A1:D",
+    "Tabulador!A1:E",
     "Disponibilidad!A1:B",
     "Precios!A1:B",
     "Promociones!A1:F",

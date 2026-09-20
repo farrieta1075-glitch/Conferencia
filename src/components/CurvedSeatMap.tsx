@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useEventStore } from "@/context/EventStore";
 import { COLORS } from "@/lib/constants";
 import { aisleStripPath, polar, polarAtFraction, buildSectionGeometry } from "@/lib/geometry";
@@ -9,6 +9,7 @@ import { buildSectionAlignLayout } from "@/lib/tabulador/align";
 import { sortedRows } from "@/lib/tabulador/seats";
 import type { SeatSlot, SeatStatus, SectionGeometry, SectionSpec } from "@/lib/types";
 import { seatId } from "@/lib/format";
+import { usePanZoom } from "./usePanZoom";
 
 const STATUS_FILL: Record<SeatStatus, string> = {
   unassigned: COLORS.unassigned,
@@ -29,8 +30,8 @@ function detailGeometry(
   totalWeight: number,
 ): SectionGeometry {
   const rowCount = Math.max(rows.length, 1);
-  const rowPitch = 26;
-  const seatPitch = 18;
+  const rowPitch = 34;
+  const seatPitch = 26;
   const rInner = 220;
   const rOuter = rInner + rowCount * rowPitch;
   const midR = (rInner + rOuter) / 2;
@@ -58,6 +59,9 @@ export function CurvedSeatMap({
   onSeatClick,
 }: CurvedSeatMapProps) {
   const { state, statusOf } = useEventStore();
+  const viewRef = useRef({ x: 0, y: 0, w: 800, h: 600 });
+  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset, suppressClick } =
+    usePanZoom({ x: 0, y: 0, k: 1 }, viewRef);
   const located = findSection(state.tabulador, sectionId);
   const baseGeometry = useMemo(
     () => buildSectionGeometry(state.tabulador).find((item) => item.sectionId === sectionId),
@@ -88,13 +92,36 @@ export function CurvedSeatMap({
   const viewW = Math.max(Math.max(...xs) - viewX + 48, 200);
   const viewH = Math.max(Math.max(...ys) - viewY + 56, 200);
 
+  viewRef.current = { x: viewX, y: viewY, w: viewW, h: viewH };
+
   return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.35)}>
+          +
+        </button>
+        <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(0.75)}>
+          −
+        </button>
+        <button type="button" className="btn-ghost min-h-12 px-4" onClick={reset}>
+          Ver todo
+        </button>
+        <p className="self-center text-xs text-ink-muted">
+          Pellizca para zoom · doble toque para acercar
+        </p>
+      </div>
     <svg
       viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-      className="h-[min(70vh,720px)] w-full rounded-2xl bg-navy-deep"
+      className="h-[min(75vh,820px)] w-full touch-none rounded-2xl bg-navy-deep max-[1100px]:landscape:h-[calc(100dvh-7rem)]"
       role="img"
       aria-label={`Asientos curvos de la sección ${sectionId}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onWheel={onWheel}
     >
+      <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
       <text
         x={focus.x}
         y={viewY + 32}
@@ -172,15 +199,15 @@ export function CurvedSeatMap({
                     <title>{`Fila ${row.id} · ${slotLabel(slot)}`}</title>
                     {slot.kind === "empty" ? (
                       <rect
-                        x={-7}
-                        y={-8}
-                        width={14}
-                        height={16}
-                        rx={2}
+                        x={-11}
+                        y={-12}
+                        width={22}
+                        height={24}
+                        rx={3}
                         fill="none"
                         stroke="#4B5C78"
-                        strokeDasharray="2 2"
-                        strokeWidth={1}
+                        strokeDasharray="3 3"
+                        strokeWidth={1.4}
                       />
                     ) : null}
                   </g>
@@ -195,26 +222,37 @@ export function CurvedSeatMap({
                   key={id}
                   transform={`translate(${point.x} ${point.y}) rotate(${deg})`}
                   className="cursor-pointer"
-                  onClick={() => onSeatClick?.(id, status)}
+                  onClick={() => {
+                    if (suppressClick.current) return;
+                    onSeatClick?.(id, status);
+                  }}
                 >
                   <title>
                     {`Fila ${row.id} asiento ${slot.number} · ${status}${accessible ? " · accesible" : ""}`}
                   </title>
                   <rect
-                    x={-7.5}
-                    y={-6}
-                    width={15}
-                    height={12}
-                    rx={3}
+                    x={-12}
+                    y={-10}
+                    width={24}
+                    height={20}
+                    rx={4}
+                    fill="transparent"
+                  />
+                  <rect
+                    x={-11}
+                    y={-9}
+                    width={22}
+                    height={18}
+                    rx={4}
                     fill={STATUS_FILL[status]}
                     stroke={isSelected ? "#F8FAFC" : "#0B132B"}
-                    strokeWidth={isSelected ? 2 : 0.6}
+                    strokeWidth={isSelected ? 2.2 : 0.8}
                   />
                   <text
-                    y={1.5}
+                    y={2}
                     textAnchor="middle"
                     fill={status === "unassigned" ? "#0F172A" : "#fff"}
-                    fontSize="7.5"
+                    fontSize="10"
                     fontWeight="700"
                     transform={`rotate(${-deg})`}
                   >
@@ -226,6 +264,8 @@ export function CurvedSeatMap({
           </g>
         );
       })}
+      </g>
     </svg>
+    </div>
   );
 }

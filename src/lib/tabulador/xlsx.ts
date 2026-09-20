@@ -108,6 +108,14 @@ export function rehomeSectionsByNumber(tabulador: VenueTabulador): VenueTabulado
   };
 }
 
+export function tabuladorHasLayout(tabulador: VenueTabulador): boolean {
+  return tabulador.areas.some((area) =>
+    area.sections.some((section) =>
+      section.rows.some((row) => row.slots?.some((slot) => slot.kind !== "seat")),
+    ),
+  );
+}
+
 export function resolveAreaId(raw: string, sectionId: string): AreaId {
   const n = Number.parseInt(sectionId, 10);
   if (Number.isFinite(n) && n >= 100 && n < 600) {

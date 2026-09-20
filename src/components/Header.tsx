@@ -55,9 +55,9 @@ export function Header() {
     : "Venta";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-white/10 bg-navy/95 text-white backdrop-blur">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex min-h-12 items-center gap-3">
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-navy/95 text-white backdrop-blur max-[1100px]:landscape:static">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between max-[1100px]:landscape:flex-row max-[1100px]:landscape:items-center max-[1100px]:landscape:gap-2 max-[1100px]:landscape:py-2">
+        <div className="flex min-h-12 items-center gap-3 max-[1100px]:landscape:min-h-10">
           {state.event.logoDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -78,7 +78,7 @@ export function Header() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 max-[1100px]:landscape:hidden">
           <div className="flex min-h-12 items-center justify-between rounded-2xl bg-navy-mid px-3 py-2 sm:block">
             <p className="text-[10px] uppercase tracking-wider text-slate-300">Ahora</p>
             <p className="text-sm font-semibold tabular-nums">

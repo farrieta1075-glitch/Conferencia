@@ -9,7 +9,7 @@ import type {
 } from "@/lib/types";
 import { remainingBalance } from "@/lib/purchases";
 import { publicUser, listUsers } from "@/lib/auth/users";
-import { countTabuladorSeats } from "@/lib/tabulador/generator";
+import { rowSlots, serializeSeatLayout } from "@/lib/tabulador/seats";
 import { readSeatStatusFromSheets } from "@/lib/sheets/load";
 import {
   ensureTabs,
@@ -158,29 +158,27 @@ export async function applySheetsDelta(delta: SheetsDelta) {
 
   if (delta.writeTabulador && delta.tabulador) {
     const existing = await rowCount(spreadsheetId, "Tabulador");
-    const incoming = countTabuladorSeats(delta.tabulador) + 1;
     const looksDefault =
       delta.tabulador.version === "2.0.0" || delta.tabulador.officialCapacity === 9564;
-    if (existing > 2000 && (incoming < existing * 0.7 || looksDefault)) {
+    if (looksDefault && existing > 500) {
       throw new Error(
-        `Se protegió el tabulador de Google Sheets (${existing} filas). No se reemplaza con ${incoming} filas.`,
+        `Se protegió el tabulador de Google Sheets (${existing} filas). No se reemplaza con el recinto por defecto.`,
       );
     }
-    await replaceTab(
-      spreadsheetId,
-      "Tabulador",
-      [
-        ["area", "seccion", "fila", "asiento"],
-        ...delta.tabulador.areas.flatMap((area) =>
-          area.sections.flatMap((section) =>
-            section.rows.flatMap((row) =>
-              row.seats.map((number) => [area.id, section.id, row.id, number]),
-            ),
-          ),
+    await replaceTab(spreadsheetId, "Tabulador", [
+      ["area", "seccion", "fila", "asientos", "orden"],
+      ...delta.tabulador.areas.flatMap((area) =>
+        area.sections.flatMap((section) =>
+          section.rows.map((row) => [
+            area.id,
+            section.id,
+            row.id,
+            serializeSeatLayout(rowSlots(row)),
+            row.order ?? "",
+          ]),
         ),
-      ],
-      true,
-    );
+      ),
+    ]);
   }
 
   if (delta.seatStatus) {

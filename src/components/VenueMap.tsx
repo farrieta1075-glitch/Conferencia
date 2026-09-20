@@ -73,7 +73,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const salesFocus = useSalesFocus();
   const setFocus = salesFocus?.setFocus;
   const clearFocus = salesFocus?.clearFocus;
-  const { transform, onPointerDown, onWheel, zoomAt, fitBounds, reset, suppressClick } =
+  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, fitBounds, reset, suppressClick } =
     usePanZoom();
   const [probe, setProbe] = useState<{ x: number; y: number }>({
     x: MAP.originX,
@@ -113,7 +113,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     transform,
   );
   const hovered = sectionAtPoint(geometries, probe.x, probe.y) ?? sectionAtPoint(geometries, viewCenter.x, viewCenter.y);
-  const activeId = focusSectionId || (transform.k >= 1.85 ? hovered?.sectionId ?? null : null);
+  const activeId = focusSectionId || (transform.k >= 1.35 ? hovered?.sectionId ?? null : null);
   const neighbors = useMemo(
     () => (activeId ? findNeighbors(geometries, activeId) : {}),
     [activeId, geometries],
@@ -121,9 +121,9 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   const seatSections = useMemo(() => {
     const ids = new Set<string>();
-    if (transform.k < 1.9) return ids;
+    if (transform.k < 1.35) return ids;
     if (activeId) ids.add(activeId);
-    if (transform.k >= 2.45) {
+    if (transform.k >= 1.7) {
       for (const neighbor of Object.values(neighbors)) {
         if (neighbor) ids.add(neighbor.sectionId);
       }
@@ -133,7 +133,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   useEffect(() => {
     if (!setFocus || !clearFocus) return;
-    if (!activeId || transform.k < 1.7) {
+    if (!activeId || transform.k < 1.25) {
       clearFocus();
       return;
     }
@@ -191,13 +191,13 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           <h2 className="font-display text-2xl text-ink">Auditorio Nacional</h2>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="btn-ghost px-4" onClick={() => zoomAt(1.2)}>
-            Acercar
+          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.35)}>
+            +
           </button>
-          <button type="button" className="btn-ghost px-4" onClick={() => zoomAt(0.8)}>
-            Alejar
+          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(0.75)}>
+            −
           </button>
-          <button type="button" className="btn-ghost px-4" onClick={handleReset}>
+          <button type="button" className="btn-ghost min-h-12 px-4" onClick={handleReset}>
             Ver todo
           </button>
         </div>
@@ -205,7 +205,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
       <div className="relative bg-navy-deep">
         <svg
           viewBox={`${MAP.viewX} ${MAP.viewY} ${MAP.viewW} ${MAP.viewH}`}
-          className="h-[min(calc(100dvh-11rem),820px)] w-full cursor-grab touch-none active:cursor-grabbing lg:h-[min(78vh,860px)]"
+          className="h-[min(calc(100dvh-8.5rem),860px)] w-full cursor-grab touch-none active:cursor-grabbing max-[1100px]:landscape:h-[calc(100dvh-6.5rem)] lg:h-[min(78vh,860px)]"
           onPointerDown={(event) => {
             const svg = event.currentTarget;
             const rect = svg.getBoundingClientRect();
@@ -214,6 +214,9 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             setProbe(viewToMap(vx, vy, transform));
             onPointerDown(event);
           }}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
           onWheel={(event) => {
             const svg = event.currentTarget;
             const rect = svg.getBoundingClientRect();
@@ -282,7 +285,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       onSeatClick={toggleSeat}
                     />
                   ) : null}
-                  {(!showingSeats || transform.k < 3.2) && (
+                  {(!showingSeats || transform.k < 2.4) && (
                     <text
                       x={centroid.x}
                       y={centroid.y}
@@ -325,6 +328,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               {item.label}
             </li>
           ))}
+          <li className="text-white/70">Pellizca o usa + / − · doble toque acerca</li>
         </ul>
       </div>
       <RoleGate allow="sales:create">
@@ -371,8 +375,9 @@ function SectionSeats({
 }) {
   const rowCount = Math.max(rows.length, 1);
   const rowH = (geo.rOuter - geo.rInner) / rowCount;
-  const seatW = Math.max(1.5, Math.min(rowH * 0.42, 8.5));
-  const showNumbers = seatW * zoom > 10;
+  const seatW = Math.max(2.4, Math.min(rowH * 0.52, 12));
+  const showNumbers = seatW * zoom > 8;
+  const hit = Math.max(seatW, 22 / zoom);
   return (
     <g>
       {rows.map((row, rowIndex) => {
@@ -395,6 +400,13 @@ function SectionSeats({
               }}
             >
               <title>{`Fila ${row.id} asiento ${item.slot.number}`}</title>
+              <rect
+                x={-hit / 2}
+                y={-hit / 2}
+                width={hit}
+                height={hit}
+                fill="transparent"
+              />
               <rect
                 x={-seatW / 2}
                 y={-seatW * 0.38}
