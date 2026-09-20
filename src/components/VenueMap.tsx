@@ -328,7 +328,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               {item.label}
             </li>
           ))}
-          <li className="text-white/70">Pellizca o usa + / − · doble toque acerca</li>
+          <li className="text-white/70">Toca un asiento para seleccionar · pellizca o + / −</li>
         </ul>
       </div>
       <RoleGate allow="sales:create">
@@ -392,12 +392,25 @@ function SectionSeats({
           return (
             <g
               key={id}
+              data-seat-id={id}
+              data-seat-status={status}
               transform={`translate(${point.x} ${point.y}) rotate(${deg})`}
               className="cursor-pointer"
-              onClick={(event) => {
+              onPointerDown={(event) => {
                 event.stopPropagation();
+                event.currentTarget.dataset.armed = "1";
+              }}
+              onPointerCancel={(event) => {
+                delete event.currentTarget.dataset.armed;
+              }}
+              onPointerUp={(event) => {
+                event.stopPropagation();
+                if (event.currentTarget.dataset.armed !== "1") return;
+                delete event.currentTarget.dataset.armed;
+                if (event.button !== 0 && event.pointerType === "mouse") return;
                 onSeatClick(id, status);
               }}
+              onClick={(event) => event.stopPropagation()}
             >
               <title>{`Fila ${row.id} asiento ${item.slot.number}`}</title>
               <rect

@@ -573,7 +573,6 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           payload.seatIds.map((id) => [id, payload.status]),
         ) as Record<string, SeatStatus>;
         queueSheets({ seatPatch });
-        await apiFetch("/api/seats", { method: "PATCH", body: JSON.stringify(payload) });
       },
       setPrice: async (areaId, basePrice) => {
         dispatch({ type: "setPrice", areaId, basePrice });

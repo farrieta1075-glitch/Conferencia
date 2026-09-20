@@ -60,7 +60,7 @@ export function CurvedSeatMap({
 }: CurvedSeatMapProps) {
   const { state, statusOf } = useEventStore();
   const viewRef = useRef({ x: 0, y: 0, w: 800, h: 600 });
-  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset, suppressClick } =
+  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset } =
     usePanZoom({ x: 0, y: 0, k: 1 }, viewRef);
   const located = findSection(state.tabulador, sectionId);
   const baseGeometry = useMemo(
@@ -107,12 +107,12 @@ export function CurvedSeatMap({
           Ver todo
         </button>
         <p className="self-center text-xs text-ink-muted">
-          Pellizca para zoom · doble toque para acercar
+          Toca un asiento para venta · pellizca o usa + / − para zoom
         </p>
       </div>
     <svg
       viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-      className="h-[min(75vh,820px)] w-full touch-none rounded-2xl bg-navy-deep max-[1100px]:landscape:h-[calc(100dvh-7rem)]"
+      className="h-[min(68vh,760px)] w-full touch-none rounded-2xl bg-navy-deep max-[1100px]:landscape:h-[min(100dvh-12rem,560px)]"
       role="img"
       aria-label={`Asientos curvos de la sección ${sectionId}`}
       onPointerDown={onPointerDown}
@@ -218,15 +218,28 @@ export function CurvedSeatMap({
               const isSelected = selected.has(id);
               const accessible = row.accessibleSeats?.includes(slot.number);
               return (
-                <g
-                  key={id}
-                  transform={`translate(${point.x} ${point.y}) rotate(${deg})`}
-                  className="cursor-pointer"
-                  onClick={() => {
-                    if (suppressClick.current) return;
-                    onSeatClick?.(id, status);
-                  }}
-                >
+                  <g
+                    key={id}
+                    data-seat-id={id}
+                    data-seat-status={status}
+                    transform={`translate(${point.x} ${point.y}) rotate(${deg})`}
+                    className="cursor-pointer"
+                    style={{ touchAction: "manipulation" }}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      event.currentTarget.dataset.armed = "1";
+                    }}
+                    onPointerCancel={(event) => {
+                      delete event.currentTarget.dataset.armed;
+                    }}
+                    onPointerUp={(event) => {
+                      event.stopPropagation();
+                      if (event.currentTarget.dataset.armed !== "1") return;
+                      delete event.currentTarget.dataset.armed;
+                      if (event.button !== 0 && event.pointerType === "mouse") return;
+                      onSeatClick?.(id, status);
+                    }}
+                  >
                   <title>
                     {`Fila ${row.id} asiento ${slot.number} · ${status}${accessible ? " · accesible" : ""}`}
                   </title>
@@ -255,6 +268,7 @@ export function CurvedSeatMap({
                     fontSize="10"
                     fontWeight="700"
                     transform={`rotate(${-deg})`}
+                    className="pointer-events-none"
                   >
                     {slot.number}
                   </text>

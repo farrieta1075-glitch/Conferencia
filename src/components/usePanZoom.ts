@@ -10,7 +10,8 @@ export interface Transform {
 }
 
 const MIN_K = 0.5;
-const MAX_K = 18;
+const MAX_K = 8;
+const DRAG_THRESHOLD = 10;
 
 function viewPoint(
   svg: SVGSVGElement,
@@ -26,6 +27,10 @@ function viewPoint(
     x: viewX + ((clientX - rect.left) / Math.max(rect.width, 1)) * viewW,
     y: viewY + ((clientY - rect.top) / Math.max(rect.height, 1)) * viewH,
   };
+}
+
+function isSeatTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest("[data-seat-id]"));
 }
 
 export function usePanZoom(
@@ -47,7 +52,6 @@ export function usePanZoom(
     vx: number;
     vy: number;
   } | null>(null);
-  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
   const suppressClick = useRef(false);
 
   const toView = (svg: SVGSVGElement, clientX: number, clientY: number) => {
@@ -68,10 +72,11 @@ export function usePanZoom(
     const centerX = cx ?? (view?.x ?? MAP.viewX) + (view?.w ?? MAP.viewW) / 2;
     const centerY = cy ?? (view?.y ?? MAP.viewY) + (view?.h ?? MAP.viewH) / 2;
     setTransform((prev) => {
-      const k = Math.min(MAX_K, Math.max(MIN_K, prev.k * factor));
-      const scale = k / prev.k;
+      const nextK = Math.min(MAX_K, Math.max(MIN_K, prev.k * factor));
+      const scale = nextK / prev.k;
+      if (!Number.isFinite(scale) || scale === 0) return prev;
       return {
-        k,
+        k: nextK,
         x: centerX - (centerX - prev.x) * scale,
         y: centerY - (centerY - prev.y) * scale,
       };
@@ -80,8 +85,9 @@ export function usePanZoom(
 
   const onPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     if (event.button !== 0 && event.pointerType === "mouse") return;
+    if (isSeatTarget(event.target)) return;
+
     const svg = event.currentTarget;
-    svg.setPointerCapture(event.pointerId);
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (pointers.current.size >= 2) {
@@ -95,23 +101,6 @@ export function usePanZoom(
       return;
     }
 
-    const now = Date.now();
-    const tap = lastTap.current;
-    if (
-      event.pointerType !== "mouse" &&
-      tap &&
-      now - tap.t < 280 &&
-      Math.hypot(event.clientX - tap.x, event.clientY - tap.y) < 36
-    ) {
-      const point = toView(svg, event.clientX, event.clientY);
-      zoomAt(1.75, point.x, point.y);
-      lastTap.current = null;
-      suppressClick.current = true;
-      drag.current = null;
-      return;
-    }
-    lastTap.current = { t: now, x: event.clientX, y: event.clientY };
-
     const prev = transformRef.current;
     drag.current = {
       x: event.clientX,
@@ -121,17 +110,19 @@ export function usePanZoom(
       moved: false,
     };
     suppressClick.current = false;
-  }, [zoomAt]);
+  }, []);
 
   const onPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
-    if (!pointers.current.has(event.pointerId)) return;
-    pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.current.has(event.pointerId)) {
+      pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
 
     if (pinch.current && pointers.current.size >= 2) {
       const pts = [...pointers.current.values()];
       const dist = Math.max(Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), 1);
       const k = Math.min(MAX_K, Math.max(MIN_K, pinch.current.k * (dist / pinch.current.dist)));
       const scale = k / pinch.current.k;
+      if (!Number.isFinite(k) || !Number.isFinite(scale)) return;
       setTransform({
         k,
         x: pinch.current.vx - (pinch.current.vx - pinch.current.x) * scale,
@@ -143,21 +134,34 @@ export function usePanZoom(
     if (!drag.current || pinch.current) return;
     const dx = event.clientX - drag.current.x;
     const dy = event.clientY - drag.current.y;
-    if (Math.hypot(dx, dy) > 8) {
+    if (!drag.current.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    if (!drag.current.moved) {
       drag.current.moved = true;
       suppressClick.current = true;
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Algunos navegadores móviles rechazan capture si el pointer ya terminó.
+      }
     }
-    setTransform((prev) => ({
-      k: prev.k,
-      x: drag.current!.tx + dx,
-      y: drag.current!.ty + dy,
-    }));
+    setTransform({
+      k: transformRef.current.k,
+      x: drag.current.tx + dx,
+      y: drag.current.ty + dy,
+    });
   }, []);
 
   const onPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     pointers.current.delete(event.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     if (pointers.current.size === 0) drag.current = null;
+    try {
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
   const fitBounds = useCallback((minX: number, minY: number, maxX: number, maxY: number) => {
@@ -165,7 +169,7 @@ export function usePanZoom(
     const height = Math.max(maxY - minY, 40);
     const k = Math.min(
       MAX_K,
-      Math.max(2.6, Math.min(MAP.viewW / (width * 1.12), MAP.viewH / (height * 1.16))),
+      Math.max(2.4, Math.min(MAP.viewW / (width * 1.12), MAP.viewH / (height * 1.16))),
     );
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
@@ -198,6 +202,7 @@ export function usePanZoom(
     suppressClick.current = false;
     pinch.current = null;
     pointers.current.clear();
+    drag.current = null;
     setTransform(initial);
   }, [initial]);
 
