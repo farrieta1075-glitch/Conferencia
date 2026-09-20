@@ -8,6 +8,7 @@ import { seatId, money } from "@/lib/format";
 import {
   annularSectorPath,
   aisleStripPath,
+  polar,
   polarAtFraction,
   buildSectionGeometry,
   sectionCentroid,
@@ -348,7 +349,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               {item.label}
             </li>
           ))}
-          <li className="text-white/70">Toca una zona para acercar sus asientos disponibles</li>
+          <li className="text-white/70">Toca una zona para acercar · las letras son las filas</li>
         </ul>
       </div>
       <RoleGate allow="sales:create">
@@ -397,9 +398,46 @@ function SectionSeats({
   const rowH = (geo.rOuter - geo.rInner) / rowCount;
   const seatW = Math.max(2.4, Math.min(rowH * 0.52, 12));
   const showNumbers = seatW * zoom > 8;
+  const showRowLabels = rowH * zoom > 8;
   const hit = Math.max(seatW, 22 / zoom);
+  const labelSize = Math.max(6.5, Math.min(13, 11 / Math.sqrt(Math.max(zoom, 1))));
+  const span = geo.thetaEnd - geo.thetaStart;
+  const labelOffset = Math.min(0.06, Math.max(0.028, span * 0.1));
+
   return (
     <g>
+      {showRowLabels
+        ? rows.map((row, rowIndex) => {
+            const rowT = (rowIndex + 0.55) / rowCount;
+            const r = geo.rInner + rowT * (geo.rOuter - geo.rInner);
+            const sides = [
+              { key: "start", theta: geo.thetaStart - labelOffset },
+              { key: "end", theta: geo.thetaEnd + labelOffset },
+            ];
+            return sides.map((side) => {
+              const point = polar(r, side.theta);
+              return (
+                <g
+                  key={`${geo.sectionId}-row-${row.id}-${side.key}`}
+                  className="pointer-events-none"
+                  transform={`translate(${point.x} ${point.y})`}
+                >
+                  <title>{`Fila ${row.id}`}</title>
+                  <circle r={labelSize * 0.85} fill="#060B18" stroke="#E8C39A" strokeWidth={0.7 / zoom} />
+                  <text
+                    y={labelSize * 0.35}
+                    textAnchor="middle"
+                    fill="#F8FAFC"
+                    fontSize={labelSize}
+                    fontWeight="800"
+                  >
+                    {row.id}
+                  </text>
+                </g>
+              );
+            });
+          })
+        : null}
       {rows.map((row, rowIndex) => {
         const placements = align.rows[rowIndex] ?? [];
         return placements.map((item) => {
