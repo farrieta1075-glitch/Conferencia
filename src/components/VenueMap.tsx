@@ -112,7 +112,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   const seatSections = useMemo(() => {
     const ids = new Set<string>();
-    if (transform.k < 1.55) return ids;
+    if (transform.k < 2.05) return ids;
     const vis = viewMapBounds(transform);
     for (const geo of geometries) {
       if (sectionOverlapsView(geo, vis)) ids.add(geo.sectionId);
@@ -205,10 +205,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           <h2 className="font-display text-xl text-ink lg:text-2xl">Auditorio Nacional</h2>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.35)}>
+          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.4)}>
             +
           </button>
-          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(0.75)}>
+          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(0.7)}>
             −
           </button>
           <button type="button" className="btn-ghost min-h-12 px-4" onClick={handleReset}>
@@ -398,11 +398,11 @@ function SectionSeats({
   const rowH = (geo.rOuter - geo.rInner) / rowCount;
   const seatW = Math.max(2.4, Math.min(rowH * 0.52, 12));
   const showNumbers = seatW * zoom > 8;
-  const showRowLabels = rowH * zoom > 8;
+  const showRowLabels = zoom >= 2.05;
   const hit = Math.max(seatW, 22 / zoom);
-  const labelSize = Math.max(6.5, Math.min(13, 11 / Math.sqrt(Math.max(zoom, 1))));
+  const labelSize = 20 / zoom;
   const span = geo.thetaEnd - geo.thetaStart;
-  const labelOffset = Math.min(0.06, Math.max(0.028, span * 0.1));
+  const labelOffset = Math.min(0.05, Math.max(0.022, span * 0.08));
 
   return (
     <g>
@@ -410,32 +410,28 @@ function SectionSeats({
         ? rows.map((row, rowIndex) => {
             const rowT = (rowIndex + 0.55) / rowCount;
             const r = geo.rInner + rowT * (geo.rOuter - geo.rInner);
-            const sides = [
-              { key: "start", theta: geo.thetaStart - labelOffset },
-              { key: "end", theta: geo.thetaEnd + labelOffset },
-            ];
-            return sides.map((side) => {
-              const point = polar(r, side.theta);
-              return (
-                <g
-                  key={`${geo.sectionId}-row-${row.id}-${side.key}`}
-                  className="pointer-events-none"
-                  transform={`translate(${point.x} ${point.y})`}
+            const point = polar(r, geo.thetaStart - labelOffset);
+            return (
+              <g
+                key={`${geo.sectionId}-row-${row.id}`}
+                className="pointer-events-none"
+                transform={`translate(${point.x} ${point.y})`}
+              >
+                <title>{`Fila ${row.id}`}</title>
+                <text
+                  y={labelSize * 0.35}
+                  textAnchor="middle"
+                  fill="#F4E6CF"
+                  stroke="#060B18"
+                  strokeWidth={0.9 / zoom}
+                  paintOrder="stroke"
+                  fontSize={labelSize}
+                  fontWeight="700"
                 >
-                  <title>{`Fila ${row.id}`}</title>
-                  <circle r={labelSize * 0.85} fill="#060B18" stroke="#E8C39A" strokeWidth={0.7 / zoom} />
-                  <text
-                    y={labelSize * 0.35}
-                    textAnchor="middle"
-                    fill="#F8FAFC"
-                    fontSize={labelSize}
-                    fontWeight="800"
-                  >
-                    {row.id}
-                  </text>
-                </g>
-              );
-            });
+                  {row.id}
+                </text>
+              </g>
+            );
           })
         : null}
       {rows.map((row, rowIndex) => {
@@ -446,10 +442,11 @@ function SectionSeats({
           const deg = (point.theta * 180) / Math.PI;
           const id = seatId(geo.sectionId, row.id, item.slot.number);
           const status = statusOf(id);
+          if (status === "unassigned" && zoom < 2.8) return null;
           const isSelected = selected.has(id);
           return (
             <g
-              key={id}
+              key={`${id}-${rowIndex}-${item.t}`}
               data-seat-id={id}
               data-seat-status={status}
               transform={`translate(${point.x} ${point.y}) rotate(${deg})`}

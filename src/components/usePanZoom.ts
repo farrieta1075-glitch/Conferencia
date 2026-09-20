@@ -9,9 +9,10 @@ export interface Transform {
   k: number;
 }
 
-const MIN_K = 0.5;
-const MAX_K = 8;
-const DRAG_THRESHOLD = 10;
+const MIN_K = 0.55;
+const MAX_K = 10;
+const DRAG_THRESHOLD = 8;
+const IDENTITY: Transform = { x: 0, y: 0, k: 1 };
 
 function viewPoint(
   svg: SVGSVGElement,
@@ -34,12 +35,13 @@ function isSeatTarget(target: EventTarget | null) {
 }
 
 export function usePanZoom(
-  initial: Transform = { x: 0, y: 0, k: 1 },
+  initial: Transform = IDENTITY,
   viewRef?: { current: { x: number; y: number; w: number; h: number } },
 ) {
   const [transform, setTransform] = useState(initial);
   const transformRef = useRef(transform);
   transformRef.current = transform;
+  const initialRef = useRef(initial);
   const drag = useRef<{ x: number; y: number; tx: number; ty: number; moved: boolean } | null>(
     null,
   );
@@ -149,12 +151,18 @@ export function usePanZoom(
         // Algunos navegadores móviles rechazan capture si el pointer ya terminó.
       }
     }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const view = viewRef?.current;
+    const viewW = view?.w ?? MAP.viewW;
+    const viewH = view?.h ?? MAP.viewH;
+    const dxView = (dx / Math.max(rect.width, 1)) * viewW;
+    const dyView = (dy / Math.max(rect.height, 1)) * viewH;
     setTransform({
       k: transformRef.current.k,
-      x: drag.current.tx + dx,
-      y: drag.current.ty + dy,
+      x: drag.current.tx + dxView,
+      y: drag.current.ty + dyView,
     });
-  }, []);
+  }, [viewRef]);
 
   const onPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     pointers.current.delete(event.pointerId);
@@ -208,8 +216,8 @@ export function usePanZoom(
     pinch.current = null;
     pointers.current.clear();
     drag.current = null;
-    setTransform(initial);
-  }, [initial]);
+    setTransform({ ...initialRef.current });
+  }, []);
 
   return {
     transform,
