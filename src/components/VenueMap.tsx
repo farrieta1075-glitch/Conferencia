@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useEventStore } from "@/context/EventStore";
 import { useSalesFocus } from "@/context/SalesFocus";
 import { COLORS, MAP } from "@/lib/constants";
@@ -18,6 +19,7 @@ import {
 import { boundsOf, sectionAtPoint, sectionOverlapsView, viewMapBounds, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
+import { resolveRowBands, type RowBandLayout } from "@/lib/tabulador/rowBands";
 import { sortedRows } from "@/lib/tabulador/seats";
 import type { RowSpec, SeatRef, SeatStatus, SectionGeometry } from "@/lib/types";
 import { PurchaseModal } from "./PurchaseModal";
@@ -38,6 +40,14 @@ const LEGEND: { label: string; color: string }[] = [
   { label: "Apartado", color: COLORS.held },
   { label: "Vendido", color: COLORS.sold },
 ];
+
+interface SeatHover {
+  x: number;
+  y: number;
+  sectionId: string;
+  rowId: string;
+  number: number;
+}
 
 function sectionHasSale(
   sectionId: string,
@@ -76,6 +86,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   });
   const [selected, setSelected] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
+  const [hoverSeat, setHoverSeat] = useState<SeatHover | null>(null);
   const canSell = useCan("sales:create");
 
   const geometries = useMemo(
@@ -93,6 +104,30 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     }
     return map;
   }, [state.tabulador]);
+
+  const rowBands = useMemo(() => {
+    const byRing = new Map<string, { rows: RowSpec[] }[]>();
+    const members = new Map<string, string[]>();
+    for (const geo of geometries) {
+      const packed = layouts.get(geo.sectionId);
+      if (!packed) continue;
+      const key = `${Math.round(geo.rInner)}:${Math.round(geo.rOuter)}`;
+      const list = byRing.get(key) ?? [];
+      list.push({ rows: packed.rows });
+      byRing.set(key, list);
+      const ids = members.get(key) ?? [];
+      ids.push(geo.sectionId);
+      members.set(key, ids);
+    }
+    const result = new Map<string, RowBandLayout>();
+    for (const [key, sections] of byRing) {
+      const layout = resolveRowBands(sections);
+      for (const sectionId of members.get(key) ?? []) {
+        result.set(sectionId, layout);
+      }
+    }
+    return result;
+  }, [geometries, layouts]);
 
   const saleFlags = useMemo(() => {
     const flags = new Map<string, boolean>();
@@ -139,12 +174,15 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     const packed = layouts.get(sectionId);
     const points: { x: number; y: number }[] = [];
     if (packed) {
+      const bands = rowBands.get(sectionId);
       packed.rows.forEach((row, rowIndex) => {
+        const bandIndex = bands?.index.get(row.id) ?? rowIndex;
+        const bandCount = bands?.bands.length ?? packed.rows.length;
         for (const item of packed.align.rows[rowIndex] ?? []) {
           if (item.slot.kind !== "seat") continue;
           const id = seatId(sectionId, row.id, item.slot.number);
           if (statusOf(id) !== "available") continue;
-          points.push(polarAtFraction(geo, rowIndex, packed.rows.length, item.t));
+          points.push(polarAtFraction(geo, bandIndex, bandCount, item.t));
         }
       });
     }
@@ -235,9 +273,16 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             const vy = MAP.viewY + ((event.clientY - rect.top) / rect.height) * MAP.viewH;
             setProbe(viewToMap(vx, vy, transform));
             onPointerMove(event);
+            if (!(event.target instanceof Element) || !event.target.closest("[data-seat-id]")) {
+              setHoverSeat(null);
+            }
           }}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerCancel={(event) => {
+            setHoverSeat(null);
+            onPointerUp(event);
+          }}
+          onPointerLeave={() => setHoverSeat(null)}
           onWheel={(event) => {
             const svg = event.currentTarget;
             const rect = svg.getBoundingClientRect();
@@ -300,10 +345,12 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       geo={geo}
                       rows={packed.rows}
                       align={packed.align}
+                      bands={rowBands.get(geo.sectionId)}
                       zoom={transform.k}
                       selected={selectedSet}
                       statusOf={statusOf}
                       onSeatClick={toggleSeat}
+                      onSeatHover={setHoverSeat}
                     />
                   ) : null}
                   {(!showingSeats || transform.k < 2.4) && (
@@ -351,6 +398,20 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           ))}
           <li className="text-white/70">Toca una zona para acercar · las letras son las filas</li>
         </ul>
+        {hoverSeat
+          ? createPortal(
+              <div
+                className="pointer-events-none fixed z-[80] rounded-lg bg-[#0B132B] px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg ring-1 ring-[#E8C39A]/60"
+                style={{
+                  left: Math.min(hoverSeat.x + 14, window.innerWidth - 220),
+                  top: Math.min(hoverSeat.y + 16, window.innerHeight - 44),
+                }}
+              >
+                Zona {hoverSeat.sectionId} · Fila {hoverSeat.rowId} · Asiento {hoverSeat.number}
+              </div>,
+              document.body,
+            )
+          : null}
       </div>
       <RoleGate allow="sales:create">
         {!!selected.length && (
@@ -381,43 +442,51 @@ function SectionSeats({
   geo,
   rows,
   align,
+  bands,
   zoom,
   selected,
   statusOf,
   onSeatClick,
+  onSeatHover,
 }: {
   geo: SectionGeometry;
   rows: RowSpec[];
   align: SectionAlignLayout;
+  bands?: RowBandLayout;
   zoom: number;
   selected: Set<string>;
   statusOf: (id: string) => SeatStatus;
   onSeatClick: (id: string, status: SeatStatus) => void;
+  onSeatHover: (seat: SeatHover | null) => void;
 }) {
-  const rowCount = Math.max(rows.length, 1);
-  const rowH = (geo.rOuter - geo.rInner) / rowCount;
+  const bandCount = Math.max(bands?.bands.length ?? rows.length, 1);
+  const rowH = (geo.rOuter - geo.rInner) / bandCount;
   const seatW = Math.max(2.4, Math.min(rowH * 0.52, 12));
   const showNumbers = seatW * zoom > 8;
   const showRowLabels = zoom >= 2.05;
   const hit = Math.max(seatW, 22 / zoom);
   const labelSize = 20 / zoom;
   const span = geo.thetaEnd - geo.thetaStart;
-  const labelOffset = Math.min(0.05, Math.max(0.022, span * 0.08));
+  const labelTheta = geo.thetaStart + Math.min(0.028, Math.max(0.012, span * 0.06));
+
+  function bandIndexOf(rowId: string, rowIndex: number) {
+    return bands?.index.get(rowId) ?? rowIndex;
+  }
 
   return (
     <g>
       {showRowLabels
         ? rows.map((row, rowIndex) => {
-            const rowT = (rowIndex + 0.55) / rowCount;
+            const bandIndex = bandIndexOf(row.id, rowIndex);
+            const rowT = (bandIndex + 0.55) / bandCount;
             const r = geo.rInner + rowT * (geo.rOuter - geo.rInner);
-            const point = polar(r, geo.thetaStart - labelOffset);
+            const point = polar(r, labelTheta);
             return (
               <g
                 key={`${geo.sectionId}-row-${row.id}`}
                 className="pointer-events-none"
                 transform={`translate(${point.x} ${point.y})`}
               >
-                <title>{`Fila ${row.id}`}</title>
                 <text
                   y={labelSize * 0.35}
                   textAnchor="middle"
@@ -436,14 +505,17 @@ function SectionSeats({
         : null}
       {rows.map((row, rowIndex) => {
         const placements = align.rows[rowIndex] ?? [];
+        const bandIndex = bandIndexOf(row.id, rowIndex);
         return placements.map((item) => {
           if (item.slot.kind !== "seat") return null;
-          const point = polarAtFraction(geo, rowIndex, rowCount, item.t);
+          const number = item.slot.number;
+          const point = polarAtFraction(geo, bandIndex, bandCount, item.t);
           const deg = (point.theta * 180) / Math.PI;
-          const id = seatId(geo.sectionId, row.id, item.slot.number);
+          const id = seatId(geo.sectionId, row.id, number);
           const status = statusOf(id);
           if (status === "unassigned" && zoom < 2.8) return null;
           const isSelected = selected.has(id);
+          const assigned = status !== "unassigned";
           return (
             <g
               key={`${id}-${rowIndex}-${item.t}`}
@@ -455,8 +527,20 @@ function SectionSeats({
                 event.stopPropagation();
                 event.currentTarget.dataset.armed = "1";
               }}
+              onPointerMove={(event) => {
+                if (!assigned) return;
+                onSeatHover({
+                  x: event.clientX,
+                  y: event.clientY,
+                  sectionId: geo.sectionId,
+                  rowId: row.id,
+                  number,
+                });
+              }}
+              onPointerLeave={() => onSeatHover(null)}
               onPointerCancel={(event) => {
                 delete event.currentTarget.dataset.armed;
+                onSeatHover(null);
               }}
               onPointerUp={(event) => {
                 event.stopPropagation();
@@ -467,7 +551,6 @@ function SectionSeats({
               }}
               onClick={(event) => event.stopPropagation()}
             >
-              <title>{`Fila ${row.id} asiento ${item.slot.number}`}</title>
               <rect
                 x={-hit / 2}
                 y={-hit / 2}
@@ -495,7 +578,7 @@ function SectionSeats({
                   transform={`rotate(${-deg})`}
                   className="pointer-events-none"
                 >
-                  {item.slot.number}
+                  {number}
                 </text>
               ) : null}
             </g>
