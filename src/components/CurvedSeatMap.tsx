@@ -265,10 +265,13 @@ export function CurvedSeatMap({
                   <text
                     y={2}
                     textAnchor="middle"
-                    fill={status === "unassigned" ? "#0F172A" : "#fff"}
-                    fontSize="10"
+                    dominantBaseline="middle"
+                    fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
+                    stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
+                    strokeWidth={1.1}
+                    paintOrder="stroke"
+                    fontSize="9"
                     fontWeight="700"
-                    transform={`rotate(${-deg})`}
                     className="pointer-events-none"
                   >
                     {slot.number}

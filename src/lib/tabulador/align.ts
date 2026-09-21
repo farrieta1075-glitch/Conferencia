@@ -1,8 +1,8 @@
 import type { RowSpec, SeatSlot } from "../types";
-import { rowSlots } from "./seats";
+import { rowSlots, slotWeight } from "./seats";
 
 const SEAT_WEIGHT = 1;
-const AISLE_WEIGHT = 2.8;
+const AISLE_WEIGHT = 2.2;
 
 export interface AlignedSlot {
   slot: SeatSlot;
@@ -134,23 +134,47 @@ function blockMaxCounts(
   );
 }
 
-function justifiedTs(
-  count: number,
+function packSlotsInBand(
+  slots: SeatSlot[],
   bandStart: number,
   bandEnd: number,
   totalWeight: number,
   pin: "start" | "end" | "center",
-): number[] {
-  if (count <= 0) return [];
-  const first = bandStart + SEAT_WEIGHT / 2;
-  const last = bandEnd - SEAT_WEIGHT / 2;
-  if (count === 1) {
-    if (pin === "start") return [first / totalWeight];
-    if (pin === "end") return [last / totalWeight];
-    return [(first + last) / 2 / totalWeight];
+): AlignedSlot[] {
+  if (!slots.length) return [];
+  const weights = slots.map((slot) => (slot.kind === "seat" ? SEAT_WEIGHT : Math.max(slotWeight(slot), 0.3)));
+  const bandW = Math.max(bandEnd - bandStart, 0);
+  const extra = bandW - weights.reduce((sum, weight) => sum + weight, 0);
+  const gapIdx = slots
+    .map((slot, index) => (slot.kind === "clear" || slot.kind === "empty" ? index : -1))
+    .filter((index) => index >= 0);
+
+  if (extra > 0.001 && gapIdx.length) {
+    const add = extra / gapIdx.length;
+    for (const index of gapIdx) weights[index] += add;
+  } else if (extra < -0.001) {
+    let deficit = -extra;
+    for (const index of gapIdx) {
+      const cut = Math.min(Math.max(weights[index] - 0.22, 0), deficit);
+      weights[index] -= cut;
+      deficit -= cut;
+    }
   }
-  const span = last - first;
-  return Array.from({ length: count }, (_, i) => (first + (span * i) / (count - 1)) / totalWeight);
+
+  let pad = 0;
+  const leftover = bandW - weights.reduce((sum, weight) => sum + weight, 0);
+  if (leftover > 0.001 && !gapIdx.length) {
+    if (pin === "end") pad = leftover;
+    else if (pin === "center") pad = leftover / 2;
+  }
+
+  let cursor = bandStart + pad;
+  return slots.map((slot, index) => {
+    const weight = weights[index];
+    const t = (cursor + weight / 2) / totalWeight;
+    cursor += weight;
+    return { slot, t };
+  });
 }
 
 function pinForBlock(index: number, blockCount: number): "start" | "end" | "center" {
@@ -198,15 +222,14 @@ export function buildSectionAlignLayout(rows: RowSpec[]): SectionAlignLayout {
     for (let i = 0; i < blockCount; i += 1) {
       const items = blocks[i] ?? [];
       const band = blockBands[i];
-      const ts = justifiedTs(
-        items.length,
+      packSlotsInBand(
+        items,
         band.start,
         band.end,
         totalWeight,
         pinForBlock(i, blockCount),
-      );
-      items.forEach((slot, j) => {
-        placements.push({ slot, t: ts[j] ?? 0.5 });
+      ).forEach((placement) => {
+        placements.push(placement);
       });
       const aisleId = aisleOrder[i];
       if (aisleId && rowAisles.has(aisleId)) {

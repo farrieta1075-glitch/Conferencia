@@ -70,6 +70,15 @@ export function sectionCentroid(geometry: SectionGeometry): PolarPoint {
   return polar(r, theta);
 }
 
+export function sectionThetaRange(geometry: SectionGeometry) {
+  const span = geometry.thetaEnd - geometry.thetaStart;
+  const margin = Math.min(0.028 * Math.abs(span), 0.04);
+  return {
+    t0: geometry.thetaStart + Math.sign(span || 1) * margin,
+    t1: geometry.thetaEnd - Math.sign(span || 1) * margin,
+  };
+}
+
 export function polarAtFraction(
   geometry: SectionGeometry,
   rowIndex: number,
@@ -78,16 +87,12 @@ export function polarAtFraction(
 ): PolarPoint {
   const rowT = (rowIndex + 0.55) / Math.max(rowCount, 1);
   const r = geometry.rInner + rowT * (geometry.rOuter - geometry.rInner);
-  const margin = 0.06 * (geometry.thetaEnd - geometry.thetaStart);
-  const t0 = geometry.thetaStart + margin;
-  const t1 = geometry.thetaEnd - margin;
+  const { t0, t1 } = sectionThetaRange(geometry);
   return polar(r, t0 + Math.min(1, Math.max(0, t)) * (t1 - t0));
 }
 
 export function aisleStripPath(geometry: SectionGeometry, t: number, width = 0.04): string {
-  const margin = 0.06 * (geometry.thetaEnd - geometry.thetaStart);
-  const t0 = geometry.thetaStart + margin;
-  const t1 = geometry.thetaEnd - margin;
+  const { t0, t1 } = sectionThetaRange(geometry);
   const theta = t0 + t * (t1 - t0);
   const half = ((t1 - t0) * Math.max(width, 0.02)) / 2;
   return annularSectorPath(geometry.rInner + 8, geometry.rOuter - 4, theta - half, theta + half, 0);

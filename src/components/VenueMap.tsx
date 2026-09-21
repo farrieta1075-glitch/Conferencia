@@ -10,6 +10,7 @@ import {
   annularSectorPath,
   aisleStripPath,
   polarAtFraction,
+  sectionThetaRange,
   buildSectionGeometry,
   sectionCentroid,
   stagePath,
@@ -464,8 +465,12 @@ function SectionSeats({
 }) {
   const bandCount = Math.max(bands?.bands.length ?? rows.length, 1);
   const rowH = (geo.rOuter - geo.rInner) / bandCount;
-  const seatW = Math.max(2.8, Math.min(rowH * 0.62, 14));
-  const hit = Math.max(seatW, 22 / zoom);
+  const { t0, t1 } = sectionThetaRange(geo);
+  const rFit = geo.rInner + (0.55 / bandCount) * (geo.rOuter - geo.rInner);
+  const pitch = (rFit * Math.abs(t1 - t0)) / Math.max(align.totalWeight, 1);
+  const seatW = Math.max(2.4, Math.min(pitch * 0.84, rowH * 0.76, 7.8));
+  const seatH = Math.max(2.1, Math.min(rowH * 0.68, seatW * 0.86));
+  const hit = Math.max(seatW, seatH, 18 / zoom);
 
   function bandIndexOf(rowId: string, rowIndex: number) {
     return bands?.index.get(rowId) ?? rowIndex;
@@ -486,8 +491,8 @@ function SectionSeats({
           if (status === "unassigned" && zoom < 2.8) return null;
           const isSelected = selected.has(id);
           const code = `${row.id}${number}`;
-          const codeSize = Math.min(seatW * 0.46, Math.max(2, (seatW * 0.95) / Math.max(code.length, 2)));
-          const showCode = seatW * zoom > 8;
+          const codeSize = Math.min(seatH * 0.5, (seatW * 0.88) / Math.max(code.length * 0.56, 1.6));
+          const showCode = seatW * zoom > 7;
           return (
             <g
               key={`${id}-${rowIndex}-${item.t}`}
@@ -529,22 +534,27 @@ function SectionSeats({
               />
               <rect
                 x={-seatW / 2}
-                y={-seatW * 0.38}
+                y={-seatH / 2}
                 width={seatW}
-                height={seatW * 0.76}
-                rx={Math.min(2, seatW / 4)}
+                height={seatH}
+                rx={Math.min(1.6, seatW / 5)}
                 fill={STATUS_FILL[status]}
                 stroke={isSelected ? "#F8FAFC" : "#0B132B"}
-                strokeWidth={(isSelected ? 1.4 : 0.35) / zoom}
+                strokeWidth={(isSelected ? 1.2 : 0.32) / zoom}
               />
               {showCode ? (
                 <text
-                  y={1.1}
+                  y={codeSize * 0.08}
                   textAnchor="middle"
-                  fill={status === "unassigned" ? "#0F172A" : "#fff"}
+                  dominantBaseline="middle"
+                  fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
+                  stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
+                  strokeWidth={Math.max(0.35, codeSize * 0.08)}
+                  paintOrder="stroke"
                   fontSize={codeSize}
                   fontWeight="700"
-                  transform={`rotate(${-deg})`}
+                  textLength={seatW * 0.86}
+                  lengthAdjust="spacingAndGlyphs"
                   className="pointer-events-none"
                 >
                   {code}
@@ -557,3 +567,4 @@ function SectionSeats({
     </g>
   );
 }
+
