@@ -140,7 +140,7 @@ export default function EventoAdminPage() {
         <div className="mt-8 border-t border-slate-200 pt-5">
           <h3 className="font-display text-2xl">Recinto</h3>
           <p className="text-sm text-ink-muted">
-            Solo ADMIN puede eliminar el recinto (se restaura el mapa por defecto). EDITOR no
+            Solo ADMIN puede eliminar el recinto (se restaura el mapa por defecto). EDITOR y práctica no
             tiene esta acción.
           </p>
           <button

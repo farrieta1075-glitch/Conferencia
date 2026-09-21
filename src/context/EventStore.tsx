@@ -12,7 +12,7 @@ import {
 } from "react";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
-import { hasPermission } from "@/lib/auth/roles";
+import { persistsToSheets } from "@/lib/auth/roles";
 import { AREA_ORDER, DEFAULT_PRICES, STORAGE_KEY } from "@/lib/constants";
 import { buildInstallmentPlans } from "@/lib/installments";
 import { notificationHooks } from "@/lib/notifications";
@@ -390,7 +390,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   const syncTimer = useRef<number>(0);
   const stateRef = useRef(state);
   const canSyncRef = useRef(false);
-  const canSync = hasPermission(session?.user?.role, "sheets:sync");
+  const canSync = persistsToSheets(session?.user?.role);
   stateRef.current = state;
   canSyncRef.current = canSync;
 
@@ -508,6 +508,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     if (status === "authenticated" && !sheetsReady.current) return;
+    if (!canSyncRef.current) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (error) {
@@ -549,15 +550,17 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           seatStatus: nextStatus,
         };
         sheetsReady.current = true;
-        await syncSheets({
-          event: stateRef.current.event,
-          officialCapacity: canonical.officialCapacity,
-          version: canonical.version,
-          tabulador: canonical,
-          writeTabulador: true,
-          seatStatus: resetAssignments ? nextStatus : undefined,
-          forceSeatStatus: Boolean(resetAssignments),
-        });
+        if (canSyncRef.current) {
+          await syncSheets({
+            event: stateRef.current.event,
+            officialCapacity: canonical.officialCapacity,
+            version: canonical.version,
+            tabulador: canonical,
+            writeTabulador: true,
+            seatStatus: resetAssignments ? nextStatus : undefined,
+            forceSeatStatus: Boolean(resetAssignments),
+          });
+        }
       },
       assignSeats: async (payload) => {
         dispatch({ type: "assignSeats", payload });
@@ -625,10 +628,12 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "setSeatStatus", seatStatus: next });
         stateRef.current = { ...stateRef.current, seatStatus: next };
         sheetsReady.current = true;
-        await syncSheets({
-          seatStatus: next,
-          forceSeatStatus: true,
-        });
+        if (canSyncRef.current) {
+          await syncSheets({
+            seatStatus: next,
+            forceSeatStatus: true,
+          });
+        }
       },
       resetVenue: async () => {
         pendingSheets = emptyPending();

@@ -9,7 +9,6 @@ import { seatId, money } from "@/lib/format";
 import {
   annularSectorPath,
   aisleStripPath,
-  polar,
   polarAtFraction,
   buildSectionGeometry,
   sectionCentroid,
@@ -78,7 +77,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const salesFocus = useSalesFocus();
   const setFocus = salesFocus?.setFocus;
   const clearFocus = salesFocus?.clearFocus;
-  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, fitBounds, reset, suppressClick } =
+  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, fitBounds, reset, suppressClick, liveGroupRef, gesturingRef } =
     usePanZoom();
   const [probe, setProbe] = useState<{ x: number; y: number }>({
     x: MAP.originX,
@@ -267,12 +266,13 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             onPointerDown(event);
           }}
           onPointerMove={(event) => {
+            onPointerMove(event);
+            if (gesturingRef.current) return;
             const svg = event.currentTarget;
             const rect = svg.getBoundingClientRect();
             const vx = MAP.viewX + ((event.clientX - rect.left) / rect.width) * MAP.viewW;
             const vy = MAP.viewY + ((event.clientY - rect.top) / rect.height) * MAP.viewH;
             setProbe(viewToMap(vx, vy, transform));
-            onPointerMove(event);
             if (!(event.target instanceof Element) || !event.target.closest("[data-seat-id]")) {
               setHoverSeat(null);
             }
@@ -295,7 +295,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           aria-label="Mapa interactivo del Auditorio Nacional"
         >
           <rect width={MAP.width} height={MAP.height} fill={COLORS.navyDeep} />
-          <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+          <g ref={liveGroupRef} transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
             <path d={walkwayPath()} fill="#C5CAD3" />
             {geometries.map((geo) => {
               const onSale = saleFlags.get(geo.sectionId);
@@ -350,7 +350,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       selected={selectedSet}
                       statusOf={statusOf}
                       onSeatClick={toggleSeat}
-                      onSeatHover={setHoverSeat}
+                      onSeatHover={(seat) => {
+                        if (gesturingRef.current) return;
+                        setHoverSeat(seat);
+                      }}
                     />
                   ) : null}
                   {(!showingSeats || transform.k < 2.4) && (
@@ -396,7 +399,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               {item.label}
             </li>
           ))}
-          <li className="text-white/70">Toca una zona para acercar · las letras son las filas</li>
+          <li className="text-white/70">Toca una zona para acercar · cada asiento muestra fila y número (B36)</li>
         </ul>
         {hoverSeat
           ? createPortal(
@@ -461,13 +464,8 @@ function SectionSeats({
 }) {
   const bandCount = Math.max(bands?.bands.length ?? rows.length, 1);
   const rowH = (geo.rOuter - geo.rInner) / bandCount;
-  const seatW = Math.max(2.4, Math.min(rowH * 0.52, 12));
-  const showNumbers = seatW * zoom > 8;
-  const showRowLabels = zoom >= 2.05;
+  const seatW = Math.max(2.8, Math.min(rowH * 0.62, 14));
   const hit = Math.max(seatW, 22 / zoom);
-  const labelSize = 20 / zoom;
-  const span = geo.thetaEnd - geo.thetaStart;
-  const labelTheta = geo.thetaStart + Math.min(0.028, Math.max(0.012, span * 0.06));
 
   function bandIndexOf(rowId: string, rowIndex: number) {
     return bands?.index.get(rowId) ?? rowIndex;
@@ -475,34 +473,6 @@ function SectionSeats({
 
   return (
     <g>
-      {showRowLabels
-        ? rows.map((row, rowIndex) => {
-            const bandIndex = bandIndexOf(row.id, rowIndex);
-            const rowT = (bandIndex + 0.55) / bandCount;
-            const r = geo.rInner + rowT * (geo.rOuter - geo.rInner);
-            const point = polar(r, labelTheta);
-            return (
-              <g
-                key={`${geo.sectionId}-row-${row.id}`}
-                className="pointer-events-none"
-                transform={`translate(${point.x} ${point.y})`}
-              >
-                <text
-                  y={labelSize * 0.35}
-                  textAnchor="middle"
-                  fill="#F4E6CF"
-                  stroke="#060B18"
-                  strokeWidth={0.9 / zoom}
-                  paintOrder="stroke"
-                  fontSize={labelSize}
-                  fontWeight="700"
-                >
-                  {row.id}
-                </text>
-              </g>
-            );
-          })
-        : null}
       {rows.map((row, rowIndex) => {
         const placements = align.rows[rowIndex] ?? [];
         const bandIndex = bandIndexOf(row.id, rowIndex);
@@ -515,7 +485,9 @@ function SectionSeats({
           const status = statusOf(id);
           if (status === "unassigned" && zoom < 2.8) return null;
           const isSelected = selected.has(id);
-          const assigned = status !== "unassigned";
+          const code = `${row.id}${number}`;
+          const codeSize = Math.min(seatW * 0.46, Math.max(2, (seatW * 0.95) / Math.max(code.length, 2)));
+          const showCode = seatW * zoom > 8;
           return (
             <g
               key={`${id}-${rowIndex}-${item.t}`}
@@ -524,11 +496,9 @@ function SectionSeats({
               transform={`translate(${point.x} ${point.y}) rotate(${deg})`}
               className="cursor-pointer"
               onPointerDown={(event) => {
-                event.stopPropagation();
                 event.currentTarget.dataset.armed = "1";
               }}
               onPointerMove={(event) => {
-                if (!assigned) return;
                 onSeatHover({
                   x: event.clientX,
                   y: event.clientY,
@@ -543,7 +513,6 @@ function SectionSeats({
                 onSeatHover(null);
               }}
               onPointerUp={(event) => {
-                event.stopPropagation();
                 if (event.currentTarget.dataset.armed !== "1") return;
                 delete event.currentTarget.dataset.armed;
                 if (event.button !== 0 && event.pointerType === "mouse") return;
@@ -568,17 +537,17 @@ function SectionSeats({
                 stroke={isSelected ? "#F8FAFC" : "#0B132B"}
                 strokeWidth={(isSelected ? 1.4 : 0.35) / zoom}
               />
-              {showNumbers ? (
+              {showCode ? (
                 <text
                   y={1.1}
                   textAnchor="middle"
                   fill={status === "unassigned" ? "#0F172A" : "#fff"}
-                  fontSize={Math.max(2.4, seatW * 0.42)}
+                  fontSize={codeSize}
                   fontWeight="700"
                   transform={`rotate(${-deg})`}
                   className="pointer-events-none"
                 >
-                  {number}
+                  {code}
                 </text>
               ) : null}
             </g>

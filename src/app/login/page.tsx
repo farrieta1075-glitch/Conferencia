@@ -36,7 +36,7 @@ function LoginForm() {
       <p className="text-xs uppercase tracking-wider text-bronze-dark">Acceso</p>
       <h1 className="font-display text-3xl text-ink">Boletos Auditorio Nacional</h1>
       <p className="mt-2 text-sm text-ink-muted">
-        Inicia sesión con el rol que te asignaron: administrador, editor o consulta.
+        Inicia sesión con el rol que te asignaron: administrador, editor, práctica o consulta.
       </p>
       <label className="mt-5 block text-sm font-medium text-ink-muted">
         Correo

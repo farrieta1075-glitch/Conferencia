@@ -63,7 +63,7 @@ export function CurvedSeatMap({
   const { state, statusOf: statusOfStore } = useEventStore();
   const statusOf = statusOfProp ?? statusOfStore;
   const viewRef = useRef({ x: 0, y: 0, w: 800, h: 600 });
-  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset } =
+  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset, liveGroupRef } =
     usePanZoom({ x: 0, y: 0, k: 1 }, viewRef);
   const located = findSection(state.tabulador, sectionId);
   const baseGeometry = useMemo(
@@ -124,7 +124,7 @@ export function CurvedSeatMap({
       onPointerCancel={onPointerUp}
       onWheel={onWheel}
     >
-      <g transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+      <g ref={liveGroupRef} transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
       <text
         x={focus.x}
         y={viewY + 32}
@@ -229,14 +229,12 @@ export function CurvedSeatMap({
                     className="cursor-pointer"
                     style={{ touchAction: "manipulation" }}
                     onPointerDown={(event) => {
-                      event.stopPropagation();
                       event.currentTarget.dataset.armed = "1";
                     }}
                     onPointerCancel={(event) => {
                       delete event.currentTarget.dataset.armed;
                     }}
                     onPointerUp={(event) => {
-                      event.stopPropagation();
                       if (event.currentTarget.dataset.armed !== "1") return;
                       delete event.currentTarget.dataset.armed;
                       if (event.button !== 0 && event.pointerType === "mouse") return;

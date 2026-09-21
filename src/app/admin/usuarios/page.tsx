@@ -69,7 +69,8 @@ export default function UsuariosAdminPage() {
         <p className="text-xs uppercase tracking-wider text-bronze-dark">ADMIN</p>
         <h2 className="font-display text-3xl">Usuarios y roles</h2>
         <p className="mt-2 text-sm text-ink-muted">
-          ADMIN gestiona cuentas. EDITOR no puede entrar aquí. VIEWER solo consulta mapas.
+          ADMIN gestiona cuentas. EDITOR guarda en Google Sheets. Editor de práctica ve y modifica lo
+          mismo que un editor, pero nada se graba en la hoja. VIEWER solo consulta mapas.
         </p>
       </section>
       <form className="card grid gap-3 p-5" onSubmit={onCreate}>

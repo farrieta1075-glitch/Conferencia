@@ -138,6 +138,11 @@ export function Header({ compact = false }: { compact?: boolean }) {
               <p className="text-[10px] uppercase tracking-wider text-bronze">
                 {session.user.role ? roleLabel(session.user.role) : ""}
               </p>
+              {session.user.role === "PRACTICE" ? (
+                <p className="mt-0.5 text-[10px] font-semibold text-amber-300">
+                  Práctica · no se guarda en Google Sheets
+                </p>
+              ) : null}
             </div>
             <button
               type="button"
