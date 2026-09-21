@@ -13,7 +13,6 @@ const MIN_K = 0.55;
 const MAX_K = 10;
 const DRAG_THRESHOLD = 8;
 const IDENTITY: Transform = { x: 0, y: 0, k: 1 };
-const COMMIT_MS = 120;
 
 function sameTransform(a: Transform, b: Transform) {
   return a.x === b.x && a.y === b.y && a.k === b.k;
@@ -97,8 +96,9 @@ export function usePanZoom(
     });
   };
 
-  const markGesturing = (svg: SVGSVGElement, active: boolean) => {
+  const markGesturing = (svg: SVGSVGElement | null, active: boolean) => {
     gesturingRef.current = active;
+    if (!svg) return;
     if (active) svg.dataset.gesturing = "1";
     else delete svg.dataset.gesturing;
   };
@@ -113,22 +113,42 @@ export function usePanZoom(
     }
   };
 
+  const releasePointer = (svg: SVGSVGElement, pointerId: number) => {
+    try {
+      if (svg.hasPointerCapture?.(pointerId)) svg.releasePointerCapture(pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
   const commit = (next: Transform = transformRef.current) => {
     paint(next, true);
     setTransform((prev) => (sameTransform(prev, next) ? prev : { ...next }));
   };
 
-  const scheduleCommit = () => {
-    if (commitTimer.current) return;
+  const commitAfterPaint = () => {
+    if (commitTimer.current) window.clearTimeout(commitTimer.current);
     commitTimer.current = window.setTimeout(() => {
       commitTimer.current = 0;
       commit();
-    }, COMMIT_MS);
+    }, 0);
+  };
+
+  const endGesture = (svg: SVGSVGElement | null) => {
+    drag.current = null;
+    pinch.current = null;
+    pointers.current.clear();
+    markGesturing(svg, false);
+    if (commitTimer.current) {
+      window.clearTimeout(commitTimer.current);
+      commitTimer.current = 0;
+    }
+    commit();
   };
 
   useLayoutEffect(() => {
     applyTransform(transformRef.current);
-  });
+  }, [transform]);
 
   const zoomAt = useCallback((factor: number, cx?: number, cy?: number) => {
     const box = viewBox();
@@ -138,11 +158,15 @@ export function usePanZoom(
     const nextK = Math.min(MAX_K, Math.max(MIN_K, prev.k * factor));
     const scale = nextK / prev.k;
     if (!Number.isFinite(scale) || scale === 0) return;
-    commit({
-      k: nextK,
-      x: centerX - (centerX - prev.x) * scale,
-      y: centerY - (centerY - prev.y) * scale,
-    });
+    paint(
+      {
+        k: nextK,
+        x: centerX - (centerX - prev.x) * scale,
+        y: centerY - (centerY - prev.y) * scale,
+      },
+      true,
+    );
+    commitAfterPaint();
   }, [viewRef]);
 
   const beginPinch = (svg: SVGSVGElement) => {
@@ -236,7 +260,7 @@ export function usePanZoom(
       try {
         event.currentTarget.setPointerCapture(event.pointerId);
       } catch {
-        // Algunos navegadores móviles rechazan capture si el pointer ya terminó.
+        // ignore
       }
     }
     const rect = event.currentTarget.getBoundingClientRect();
@@ -248,12 +272,12 @@ export function usePanZoom(
       x: drag.current.tx + dxView,
       y: drag.current.ty + dyView,
     });
-    scheduleCommit();
   }, [viewRef]);
 
   const onPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     pointers.current.delete(event.pointerId);
     const svg = event.currentTarget;
+    releasePointer(svg, event.pointerId);
 
     if (pointers.current.size === 1 && pinch.current) {
       pinch.current = null;
@@ -274,18 +298,14 @@ export function usePanZoom(
     if (pointers.current.size === 0) {
       drag.current = null;
       markGesturing(svg, false);
-      if (commitTimer.current) {
-        window.clearTimeout(commitTimer.current);
-        commitTimer.current = 0;
-      }
-      commit();
+      commitAfterPaint();
     }
-    try {
-      if (svg.hasPointerCapture?.(event.pointerId)) {
-        svg.releasePointerCapture(event.pointerId);
-      }
-    } catch {
-      // ignore
+  }, []);
+
+  const onLostPointerCapture = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    pointers.current.delete(event.pointerId);
+    if (pointers.current.size === 0 && (gesturingRef.current || pinch.current || drag.current)) {
+      endGesture(event.currentTarget);
     }
   }, []);
 
@@ -298,11 +318,15 @@ export function usePanZoom(
     );
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
-    commit({
-      k,
-      x: MAP.viewX + MAP.viewW / 2 - cx * k,
-      y: MAP.viewY + MAP.viewH / 2 - cy * k,
-    });
+    paint(
+      {
+        k,
+        x: MAP.viewX + MAP.viewW / 2 - cx * k,
+        y: MAP.viewY + MAP.viewH / 2 - cy * k,
+      },
+      true,
+    );
+    commitAfterPaint();
   }, []);
 
   const onWheel = useCallback(
@@ -321,27 +345,23 @@ export function usePanZoom(
         x: point.x - (point.x - prev.x) * scale,
         y: point.y - (point.y - prev.y) * scale,
       });
-      scheduleCommit();
+      commitAfterPaint();
     },
     [viewRef],
   );
 
   const reset = useCallback(() => {
     suppressClick.current = false;
-    pinch.current = null;
-    pointers.current.clear();
-    drag.current = null;
-    if (svgRef.current) markGesturing(svgRef.current, false);
-    else gesturingRef.current = false;
-    if (commitTimer.current) {
-      window.clearTimeout(commitTimer.current);
-      commitTimer.current = 0;
-    }
     if (rafRef.current) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = 0;
     }
-    commit({ ...initialRef.current });
+    const svg = svgRef.current;
+    if (svg) {
+      for (const id of [...pointers.current.keys()]) releasePointer(svg, id);
+    }
+    transformRef.current = { ...initialRef.current };
+    endGesture(svg);
   }, []);
 
   return {
@@ -352,6 +372,7 @@ export function usePanZoom(
     onPointerDown,
     onPointerMove,
     onPointerUp,
+    onLostPointerCapture,
     onWheel,
     zoomAt,
     fitBounds,

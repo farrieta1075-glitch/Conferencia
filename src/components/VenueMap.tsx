@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEventStore } from "@/context/EventStore";
 import { useSalesFocus } from "@/context/SalesFocus";
@@ -16,7 +16,7 @@ import {
   stagePath,
   walkwayPath,
 } from "@/lib/geometry";
-import { boundsOf, sectionAtPoint, sectionOverlapsView, viewMapBounds, viewToMap } from "@/lib/mapView";
+import { boundsOf, findNeighbors, sectionAtPoint, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
 import { radiusForRow, resolveRowBands, rowDeltaR, type RowBandLayout } from "@/lib/tabulador/rowBands";
@@ -78,7 +78,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const salesFocus = useSalesFocus();
   const setFocus = salesFocus?.setFocus;
   const clearFocus = salesFocus?.clearFocus;
-  const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, fitBounds, reset, suppressClick, liveGroupRef, gesturingRef } =
+  const { transform, onPointerDown, onPointerMove, onPointerUp, onLostPointerCapture, onWheel, zoomAt, fitBounds, reset, suppressClick, liveGroupRef, gesturingRef } =
     usePanZoom();
   const [probe, setProbe] = useState<{ x: number; y: number }>({
     x: MAP.originX,
@@ -177,15 +177,23 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const hovered = sectionAtPoint(geometries, probe.x, probe.y) ?? sectionAtPoint(geometries, viewCenter.x, viewCenter.y);
   const activeId = hovered?.sectionId ?? null;
 
-  const seatSections = useMemo(() => {
-    const ids = new Set<string>();
-    if (transform.k < 2.05) return ids;
-    const vis = viewMapBounds(transform);
-    for (const geo of geometries) {
-      if (sectionOverlapsView(geo, vis)) ids.add(geo.sectionId);
+  const seatFocus = useMemo(() => {
+    const empty = { ids: new Set<string>(), primary: null as string | null };
+    if (transform.k < 1.85) return empty;
+    const primary =
+      sectionAtPoint(geometries, viewCenter.x, viewCenter.y) ??
+      sectionAtPoint(geometries, probe.x, probe.y);
+    if (!primary) return empty;
+    const ids = new Set<string>([primary.sectionId]);
+    const neighbors = findNeighbors(geometries, primary.sectionId);
+    if (neighbors.left) ids.add(neighbors.left.sectionId);
+    if (neighbors.right) ids.add(neighbors.right.sectionId);
+    if (transform.k >= 2.7) {
+      if (neighbors.inward) ids.add(neighbors.inward.sectionId);
+      if (neighbors.outward) ids.add(neighbors.outward.sectionId);
     }
-    return ids;
-  }, [geometries, transform]);
+    return { ids, primary: primary.sectionId };
+  }, [geometries, probe.x, probe.y, transform, viewCenter.x, viewCenter.y]);
 
   useEffect(() => {
     if (!setFocus || !clearFocus) return;
@@ -205,35 +213,8 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   function zoomToSection(sectionId: string) {
     const geo = geometries.find((item) => item.sectionId === sectionId);
     if (!geo) return;
-    const packed = layouts.get(sectionId);
-    const points: { x: number; y: number }[] = [];
-    if (packed) {
-      const bands = rowBands.bands.get(sectionId);
-      const deltaR = rowBands.delta.get(sectionId) ?? 8;
-      packed.rows.forEach((row, rowIndex) => {
-        for (const item of packed.align.rows[rowIndex] ?? []) {
-          if (item.slot.kind !== "seat") continue;
-          const id = seatId(sectionId, row.id, item.slot.number);
-          if (statusOf(id) !== "available") continue;
-          const radius = bands
-            ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)
-            : geo.rInner + ((rowIndex + 0.55) / Math.max(packed.rows.length, 1)) * (geo.rOuter - geo.rInner);
-          points.push(polarAtRadius(geo, radius, item.t));
-        }
-      });
-    }
     const centroid = sectionCentroid(geo);
     setProbe({ x: centroid.x, y: centroid.y });
-    if (points.length) {
-      const pad = 36;
-      fitBounds(
-        Math.min(...points.map((point) => point.x)) - pad,
-        Math.min(...points.map((point) => point.y)) - pad,
-        Math.max(...points.map((point) => point.x)) + pad,
-        Math.max(...points.map((point) => point.y)) + pad,
-      );
-      return;
-    }
     const box = boundsOf([geo]);
     fitBounds(box.minX, box.minY, box.maxX, box.maxY);
   }
@@ -260,17 +241,57 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     zoomToSection(sectionId);
   }
 
-  function toggleSeat(id: string, status: SeatStatus) {
+  const toggleSeat = useCallback((id: string, status: SeatStatus) => {
     if (!canSell || status !== "available") return;
     setSelected((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
-  }
+  }, [canSell]);
+
+  const handleSeatHover = useCallback((seat: SeatHover | null, pointerType?: string) => {
+    if (gesturingRef.current) return;
+    if (pointerType === "touch") return;
+    setHoverSeat(seat);
+  }, [gesturingRef]);
+
+  const lastProbeAt = useRef(0);
+  const setProbeThrottled = useCallback((x: number, y: number) => {
+    const now = performance.now();
+    if (now - lastProbeAt.current < 80) return;
+    lastProbeAt.current = now;
+    setProbe({ x, y });
+  }, []);
 
   function handleReset() {
     setSelected([]);
     clearFocus?.();
     reset();
+  }
+
+  const lastControlTap = useRef(0);
+  function runControlTap(action: () => void) {
+    const now = performance.now();
+    if (now - lastControlTap.current < 260) return;
+    lastControlTap.current = now;
+    action();
+  }
+
+  function handleZoomIn(event: React.SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    runControlTap(() => zoomAt(1.4));
+  }
+
+  function handleZoomOut(event: React.SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    runControlTap(() => zoomAt(0.7));
+  }
+
+  function handleResetTap(event: React.SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    runControlTap(() => handleReset());
   }
 
   return (
@@ -280,14 +301,29 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           <p className="text-xs uppercase tracking-wider text-bronze-dark">Mapa general</p>
           <h2 className="font-display text-xl text-ink lg:text-2xl">Auditorio Nacional</h2>
         </div>
-        <div className="flex gap-2">
-          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.4)}>
+        <div className="relative z-20 flex gap-2">
+          <button
+            type="button"
+            className="btn-ghost min-h-12 min-w-12 px-4 text-lg"
+            onPointerUp={handleZoomIn}
+            onClick={handleZoomIn}
+          >
             +
           </button>
-          <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(0.7)}>
+          <button
+            type="button"
+            className="btn-ghost min-h-12 min-w-12 px-4 text-lg"
+            onPointerUp={handleZoomOut}
+            onClick={handleZoomOut}
+          >
             −
           </button>
-          <button type="button" className="btn-ghost min-h-12 px-4" onClick={handleReset}>
+          <button
+            type="button"
+            className="btn-ghost min-h-12 px-4"
+            onPointerUp={handleResetTap}
+            onClick={handleResetTap}
+          >
             Ver todo
           </button>
         </div>
@@ -304,7 +340,8 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             const rect = svg.getBoundingClientRect();
             const vx = MAP.viewX + ((event.clientX - rect.left) / rect.width) * MAP.viewW;
             const vy = MAP.viewY + ((event.clientY - rect.top) / rect.height) * MAP.viewH;
-            setProbe(viewToMap(vx, vy, transform));
+            const point = viewToMap(vx, vy, transform);
+            setProbeThrottled(point.x, point.y);
           }}
           onPointerMove={(event) => {
             onPointerMove(event);
@@ -313,7 +350,8 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             const rect = svg.getBoundingClientRect();
             const vx = MAP.viewX + ((event.clientX - rect.left) / rect.width) * MAP.viewW;
             const vy = MAP.viewY + ((event.clientY - rect.top) / rect.height) * MAP.viewH;
-            setProbe(viewToMap(vx, vy, transform));
+            const point = viewToMap(vx, vy, transform);
+            setProbeThrottled(point.x, point.y);
             if (!(event.target instanceof Element) || !event.target.closest("[data-seat-id]")) {
               setHoverSeat(null);
             }
@@ -323,6 +361,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             setHoverSeat(null);
             onPointerUp(event);
           }}
+          onLostPointerCapture={onLostPointerCapture}
           onPointerLeave={() => setHoverSeat(null)}
           onWheel={(event) => {
             const svg = event.currentTarget;
@@ -349,7 +388,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               const angular = Math.abs(geo.thetaEnd - geo.thetaStart);
               const isPit = geo.sectionId === "101";
               const isActive = geo.sectionId === activeId;
-              const showingSeats = seatSections.has(geo.sectionId);
+              const showingSeats = seatFocus.ids.has(geo.sectionId);
               const fill = isPit ? "#C5CAD3" : onSale ? COLORS.saleZoneActive : "#1E4BA8";
               const fontSize = Math.max(
                 8 / Math.sqrt(transform.k),
@@ -396,12 +435,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       seatH={seatBox.h}
                       zoom={transform.k}
                       selected={selectedSet}
+                      includeUnassigned={geo.sectionId === seatFocus.primary && transform.k >= 2.6}
                       statusOf={statusOf}
                       onSeatClick={toggleSeat}
-                      onSeatHover={(seat) => {
-                        if (gesturingRef.current) return;
-                        setHoverSeat(seat);
-                      }}
+                      onSeatHover={handleSeatHover}
                     />
                   ) : null}
                   {(!showingSeats || transform.k < 2.4) && (
@@ -489,7 +526,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   );
 }
 
-function SectionSeats({
+const SectionSeats = memo(function SectionSeats({
   geo,
   rows,
   align,
@@ -499,6 +536,7 @@ function SectionSeats({
   seatH,
   zoom,
   selected,
+  includeUnassigned,
   statusOf,
   onSeatClick,
   onSeatHover,
@@ -512,9 +550,10 @@ function SectionSeats({
   seatH: number;
   zoom: number;
   selected: Set<string>;
+  includeUnassigned: boolean;
   statusOf: (id: string) => SeatStatus;
   onSeatClick: (id: string, status: SeatStatus) => void;
-  onSeatHover: (seat: SeatHover | null) => void;
+  onSeatHover: (seat: SeatHover | null, pointerType?: string) => void;
 }) {
   const hit = Math.max(seatW, seatH, 18 / zoom);
 
@@ -525,14 +564,14 @@ function SectionSeats({
         return placements.map((item) => {
           if (item.slot.kind !== "seat") return null;
           const number = item.slot.number;
+          const id = seatId(geo.sectionId, row.id, number);
+          const status = statusOf(id);
+          if (status === "unassigned" && !includeUnassigned) return null;
           const radius = bands
             ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)
             : geo.rInner + ((rowIndex + 0.55) / Math.max(rows.length, 1)) * (geo.rOuter - geo.rInner);
           const point = polarAtRadius(geo, radius, item.t);
           const deg = (point.theta * 180) / Math.PI;
-          const id = seatId(geo.sectionId, row.id, number);
-          const status = statusOf(id);
-          if (status === "unassigned" && zoom < 2.8) return null;
           const isSelected = selected.has(id);
           const code = `${row.id}${number}`;
           const codeSize = Math.min(seatH * 0.34, (seatW * 0.62) / Math.max(code.length * 0.7, 2));
@@ -548,13 +587,17 @@ function SectionSeats({
                 event.currentTarget.dataset.armed = "1";
               }}
               onPointerMove={(event) => {
-                onSeatHover({
-                  x: event.clientX,
-                  y: event.clientY,
-                  sectionId: geo.sectionId,
-                  rowId: row.id,
-                  number,
-                });
+                if (event.pointerType === "touch") return;
+                onSeatHover(
+                  {
+                    x: event.clientX,
+                    y: event.clientY,
+                    sectionId: geo.sectionId,
+                    rowId: row.id,
+                    number,
+                  },
+                  event.pointerType,
+                );
               }}
               onPointerLeave={() => onSeatHover(null)}
               onPointerCancel={(event) => {
@@ -610,5 +653,5 @@ function SectionSeats({
       })}
     </g>
   );
-}
+});
 
