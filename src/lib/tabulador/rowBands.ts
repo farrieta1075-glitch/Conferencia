@@ -1,4 +1,4 @@
-import type { RowSpec } from "../types";
+import type { RowSpec, SectionGeometry } from "../types";
 import { sortedRows } from "./seats";
 
 export interface RowBandLayout {
@@ -63,4 +63,33 @@ export function resolveRowBands(sections: { rows: RowSpec[] }[]): RowBandLayout 
     bands,
     index: new Map(bands.map((id, i) => [id, i])),
   };
+}
+
+export function rowDeltaR(
+  geometries: Pick<SectionGeometry, "rInner" | "rOuter">[],
+  bandCount: number,
+): number {
+  const n = Math.max(bandCount, 1);
+  let min = Infinity;
+  for (const geo of geometries) {
+    const height = geo.rOuter - geo.rInner;
+    if (height > 4) min = Math.min(min, height / n);
+  }
+  return Number.isFinite(min) ? min : 8;
+}
+
+/** Same letter sits on the same arc, anchored from the back of the hall. */
+export function radiusForRow(
+  geo: Pick<SectionGeometry, "rInner" | "rOuter">,
+  rowId: string,
+  bands: RowBandLayout,
+  deltaR: number,
+  fallbackIndex = 0,
+): number {
+  const n = Math.max(bands.bands.length, 1);
+  const index = bands.index.get(rowId) ?? fallbackIndex;
+  const fromOuter = n - 1 - index + 0.45;
+  const r = geo.rOuter - fromOuter * Math.max(deltaR, 1);
+  const pad = Math.min(Math.max(deltaR * 0.12, 1.2), (geo.rOuter - geo.rInner) * 0.18);
+  return Math.min(geo.rOuter - pad, Math.max(geo.rInner + pad, r));
 }

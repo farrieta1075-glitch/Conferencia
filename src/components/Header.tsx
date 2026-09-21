@@ -48,11 +48,9 @@ export function Header({ compact = false }: { compact?: boolean }) {
   const now = useNow();
   const eventDate = new Date(state.event.datetime);
   const count = now ? countdownParts(eventDate, now) : null;
-  const focusedAvailable = focus?.sectionId ? focus.available : null;
+  const focusedAvailable = compact && focus?.sectionId ? focus.available : null;
   const shownAvailable = focusedAvailable ?? availableCount;
-  const availabilityLabel = focus?.sectionId
-    ? `Sección ${focus.sectionId}`
-    : "Venta";
+  const availabilityLabel = compact && focus?.sectionId ? `Sección ${focus.sectionId}` : "Venta";
 
   return (
     <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-navy/95 text-white backdrop-blur">

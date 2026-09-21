@@ -1,10 +1,22 @@
 "use client";
 
+import { useEffect } from "react";
 import { Header } from "./Header";
 import { Nav } from "./Nav";
 import { RegisterSW } from "./RegisterSW";
-import { SalesFocusProvider } from "@/context/SalesFocus";
+import { SalesFocusProvider, useSalesFocus } from "@/context/SalesFocus";
 import { usePathname } from "next/navigation";
+
+function ClearSalesFocusOffMap() {
+  const pathname = usePathname();
+  const focus = useSalesFocus();
+  const clearFocus = focus?.clearFocus;
+  const isSales = pathname === "/" || pathname.startsWith("/seccion");
+  useEffect(() => {
+    if (!isSales) clearFocus?.();
+  }, [clearFocus, isSales]);
+  return null;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -16,6 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SalesFocusProvider>
+      <ClearSalesFocusOffMap />
       <div className={isSales ? "flex h-dvh flex-col overflow-hidden bg-navy" : "min-h-dvh bg-navy"}>
         <RegisterSW />
         <Header compact={isSales} />

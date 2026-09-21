@@ -1,7 +1,9 @@
-import type { PolarPoint, SectionGeometry, VenueTabulador } from "./types";
+import type { PolarPoint, SectionGeometry, SectionSpec, VenueTabulador } from "./types";
 import { MAP } from "./constants";
 import { FALLBACK_RINGS, SECTION_LAYOUT, WALKWAY, fallbackWedge, type Wedge } from "./layout";
+import { buildSectionAlignLayout } from "./tabulador/align";
 import { canonicalizeSectionId } from "./tabulador/ids";
+import { sortedRows } from "./tabulador/seats";
 
 export function polar(r: number, theta: number): PolarPoint {
   return {
@@ -41,26 +43,144 @@ export function walkwayPath(): string {
   return annularSectorPath(WALKWAY.rInner, WALKWAY.rOuter, WALKWAY.thetaStart, WALKWAY.thetaEnd, 0);
 }
 
+function sectionArcWeight(section: SectionSpec): number {
+  const rows = sortedRows(section.rows);
+  if (!rows.length) return 1;
+  return Math.max(buildSectionAlignLayout(rows).totalWeight, 1);
+}
+
+function ringKey(geo: SectionGeometry) {
+  return `${geo.areaId}:${Math.round(geo.rInner)}:${Math.round(geo.rOuter)}`;
+}
+
+function wedgeIdentity(geo: SectionGeometry) {
+  return `${ringKey(geo)}:${geo.thetaStart.toFixed(5)}:${geo.thetaEnd.toFixed(5)}`;
+}
+
+function redistributeRingThetas(
+  geometries: SectionGeometry[],
+  weightOf: (sectionId: string) => number,
+) {
+  type Slot = {
+    geos: SectionGeometry[];
+    weight: number;
+    start: number;
+    end: number;
+  };
+  const slots = new Map<string, Slot>();
+  for (const geo of geometries) {
+    const key = wedgeIdentity(geo);
+    const weight = weightOf(geo.sectionId);
+    const existing = slots.get(key);
+    if (existing) {
+      existing.geos.push(geo);
+      existing.weight = Math.max(existing.weight, weight);
+    } else {
+      slots.set(key, {
+        geos: [geo],
+        weight,
+        start: geo.thetaStart,
+        end: geo.thetaEnd,
+      });
+    }
+  }
+
+  const byRing = new Map<string, Slot[]>();
+  for (const slot of slots.values()) {
+    const key = ringKey(slot.geos[0]);
+    const list = byRing.get(key) ?? [];
+    list.push(slot);
+    byRing.set(key, list);
+  }
+
+  for (const ringSlots of byRing.values()) {
+    if (ringSlots[0]?.geos[0]?.areaId === "segundo-piso") continue;
+    ringSlots.sort((a, b) => (a.start + a.end) / 2 - (b.start + b.end) / 2);
+    const clusters: Slot[][] = [];
+    let current: Slot[] = [ringSlots[0]];
+    for (let i = 1; i < ringSlots.length; i += 1) {
+      const prev = current[current.length - 1];
+      if (ringSlots[i].start <= prev.end + 0.018) {
+        current.push(ringSlots[i]);
+      } else {
+        clusters.push(current);
+        current = [ringSlots[i]];
+      }
+    }
+    clusters.push(current);
+
+    for (const cluster of clusters) {
+      if (cluster.length < 2) continue;
+      const left = cluster[0].start;
+      const right = cluster[cluster.length - 1].end;
+      const span = right - left;
+      const sum = cluster.reduce((total, slot) => total + slot.weight, 0) || 1;
+      let cursor = left;
+      for (const slot of cluster) {
+        const next = cursor + span * (slot.weight / sum);
+        for (const geo of slot.geos) {
+          geo.thetaStart = cursor;
+          geo.thetaEnd = next;
+        }
+        cursor = next;
+      }
+    }
+  }
+}
+
+function stackUpperFloor(geometries: SectionGeometry[]) {
+  const byId = new Map<string, SectionGeometry>();
+  for (const geo of geometries) {
+    const id = canonicalizeSectionId(geo.sectionId);
+    const current = byId.get(id);
+    if (!current || geo.areaId === "primer-piso") byId.set(id, geo);
+  }
+  for (const geo of geometries) {
+    const id = canonicalizeSectionId(geo.sectionId);
+    const number = Number(id);
+    if (!Number.isFinite(number) || number < 500 || number >= 600) continue;
+    const below = byId.get(String(number - 100));
+    if (!below) continue;
+    geo.thetaStart = below.thetaStart;
+    geo.thetaEnd = below.thetaEnd;
+  }
+}
+
 export function buildSectionGeometry(tabulador: VenueTabulador): SectionGeometry[] {
   const geometries: SectionGeometry[] = [];
+  const weights = new Map<string, number>();
 
   for (const area of tabulador.areas) {
-    const unknown = area.sections.filter(
-      (section) => !SECTION_LAYOUT[section.id] && !SECTION_LAYOUT[canonicalizeSectionId(section.id)],
-    );
-    let unknownIndex = 0;
-
+    const known: { section: (typeof area.sections)[number]; wedge: Wedge }[] = [];
+    const unknown: typeof area.sections = [];
     for (const section of area.sections) {
+      weights.set(section.id, sectionArcWeight(section));
       const explicit = SECTION_LAYOUT[section.id] ?? SECTION_LAYOUT[canonicalizeSectionId(section.id)];
-      const wedge: Wedge = explicit ?? fallbackWedge(area.id, unknownIndex++, unknown.length);
+      if (explicit) known.push({ section, wedge: explicit });
+      else unknown.push(section);
+    }
+
+    for (const { section, wedge } of known) {
       geometries.push({
         sectionId: section.id,
         areaId: area.id,
         ...wedge,
       });
     }
+
+    const occupied = known.map((item) => item.wedge);
+    unknown.forEach((section, index) => {
+      const wedge = fallbackWedge(area.id, index, unknown.length, occupied);
+      geometries.push({
+        sectionId: section.id,
+        areaId: area.id,
+        ...wedge,
+      });
+    });
   }
 
+  redistributeRingThetas(geometries, (sectionId) => weights.get(sectionId) ?? 1);
+  stackUpperFloor(geometries);
   return geometries;
 }
 
@@ -87,8 +207,12 @@ export function polarAtFraction(
 ): PolarPoint {
   const rowT = (rowIndex + 0.55) / Math.max(rowCount, 1);
   const r = geometry.rInner + rowT * (geometry.rOuter - geometry.rInner);
+  return polarAtRadius(geometry, r, t);
+}
+
+export function polarAtRadius(geometry: SectionGeometry, radius: number, t: number): PolarPoint {
   const { t0, t1 } = sectionThetaRange(geometry);
-  return polar(r, t0 + Math.min(1, Math.max(0, t)) * (t1 - t0));
+  return polar(radius, t0 + Math.min(1, Math.max(0, t)) * (t1 - t0));
 }
 
 export function aisleStripPath(geometry: SectionGeometry, t: number, width = 0.04): string {

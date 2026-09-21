@@ -174,15 +174,41 @@ export const FALLBACK_RINGS: Record<AreaId, { rInner: number; rOuter: number; sp
 
 export const WALKWAY: Wedge = center(R4, R5, A402);
 
-export function fallbackWedge(areaId: AreaId, index: number, total: number): Wedge {
+const OUTER_SLICE = 10 * DEG;
+
+export function fallbackWedge(
+  areaId: AreaId,
+  index: number,
+  total: number,
+  occupied: Wedge[] = [],
+): Wedge {
   const ring = FALLBACK_RINGS[areaId];
-  const sweep = ring.span / Math.max(total, 1);
-  const start = -ring.span / 2 + index * sweep;
+  if (!occupied.length) {
+    const sweep = ring.span / Math.max(total, 1);
+    const start = -ring.span / 2 + index * sweep;
+    return {
+      rInner: ring.rInner,
+      rOuter: ring.rOuter,
+      thetaStart: start,
+      thetaEnd: start + sweep,
+    };
+  }
+  const outer = occupied.reduce((best, wedge) => {
+    const abs = Math.max(Math.abs(wedge.thetaStart), Math.abs(wedge.thetaEnd));
+    const bestAbs = Math.max(Math.abs(best.thetaStart), Math.abs(best.thetaEnd));
+    return abs >= bestAbs ? wedge : best;
+  });
+  const maxAbs = Math.max(
+    ...occupied.map((wedge) => Math.max(Math.abs(wedge.thetaStart), Math.abs(wedge.thetaEnd))),
+  );
+  const side = index % 2 === 0 ? 1 : -1;
+  const rank = Math.floor(index / 2);
+  const inner = maxAbs + rank * OUTER_SLICE;
   return {
-    rInner: ring.rInner,
-    rOuter: ring.rOuter,
-    thetaStart: start,
-    thetaEnd: start + sweep,
+    rInner: outer.rInner,
+    rOuter: outer.rOuter,
+    thetaStart: side > 0 ? inner : -inner - OUTER_SLICE,
+    thetaEnd: side > 0 ? inner + OUTER_SLICE : -inner,
   };
 }
 

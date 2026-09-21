@@ -20,10 +20,6 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
   const seatKey = seats.map((seat) => seat.id).join("|");
   const [sameName, setSameName] = useState(true);
   const [names, setNames] = useState<string[]>(() => seats.map(() => ""));
-
-  useEffect(() => {
-    if (open) setNames(Array.from({ length: seats.length }, () => ""));
-  }, [open, seatKey, seats.length]);
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("total");
@@ -34,6 +30,14 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
   const [remindEmail, setRemindEmail] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setNames(Array.from({ length: seats.length }, () => ""));
+    setPhone("");
+    setEmail("");
+    setDeposit(0);
+    setError("");
+  }, [open, seatKey, seats.length]);
 
   const priced = useMemo(
     () =>
@@ -93,6 +97,11 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
         remindWhatsApp: paymentMode === "partial" && remindWhatsApp,
         remindEmail: paymentMode === "partial" && remindEmail,
       });
+      setNames(Array.from({ length: seats.length }, () => ""));
+      setPhone("");
+      setEmail("");
+      setDeposit(0);
+      setError("");
       onCompleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo completar la compra");

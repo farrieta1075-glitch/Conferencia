@@ -9,7 +9,7 @@ import { seatId, money } from "@/lib/format";
 import {
   annularSectorPath,
   aisleStripPath,
-  polarAtFraction,
+  polarAtRadius,
   sectionThetaRange,
   buildSectionGeometry,
   sectionCentroid,
@@ -19,7 +19,7 @@ import {
 import { boundsOf, sectionAtPoint, sectionOverlapsView, viewMapBounds, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
-import { resolveRowBands, type RowBandLayout } from "@/lib/tabulador/rowBands";
+import { radiusForRow, resolveRowBands, rowDeltaR, type RowBandLayout } from "@/lib/tabulador/rowBands";
 import { sortedRows } from "@/lib/tabulador/seats";
 import type { RowSpec, SeatRef, SeatStatus, SectionGeometry } from "@/lib/types";
 import { PurchaseModal } from "./PurchaseModal";
@@ -106,28 +106,60 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   }, [state.tabulador]);
 
   const rowBands = useMemo(() => {
-    const byRing = new Map<string, { rows: RowSpec[] }[]>();
+    const byArc = new Map<string, { rows: RowSpec[] }[]>();
     const members = new Map<string, string[]>();
+    const geosByArc = new Map<string, SectionGeometry[]>();
     for (const geo of geometries) {
       const packed = layouts.get(geo.sectionId);
       if (!packed) continue;
-      const key = `${Math.round(geo.rInner)}:${Math.round(geo.rOuter)}`;
-      const list = byRing.get(key) ?? [];
+      const key = `${geo.areaId}:${Math.round(geo.rOuter)}`;
+      const list = byArc.get(key) ?? [];
       list.push({ rows: packed.rows });
-      byRing.set(key, list);
+      byArc.set(key, list);
       const ids = members.get(key) ?? [];
       ids.push(geo.sectionId);
       members.set(key, ids);
+      const geos = geosByArc.get(key) ?? [];
+      geos.push(geo);
+      geosByArc.set(key, geos);
     }
     const result = new Map<string, RowBandLayout>();
-    for (const [key, sections] of byRing) {
+    const delta = new Map<string, number>();
+    for (const [key, sections] of byArc) {
       const layout = resolveRowBands(sections);
+      const areaDelta = rowDeltaR(geosByArc.get(key) ?? [], layout.bands.length);
       for (const sectionId of members.get(key) ?? []) {
         result.set(sectionId, layout);
+        delta.set(sectionId, areaDelta);
       }
     }
-    return result;
+    return { bands: result, delta };
   }, [geometries, layouts]);
+
+  const seatBox = useMemo(() => {
+    const pitches: number[] = [];
+    const rowHs: number[] = [];
+    for (const geo of geometries) {
+      const packed = layouts.get(geo.sectionId);
+      const bands = rowBands.bands.get(geo.sectionId);
+      if (!packed || packed.align.totalWeight < 6) continue;
+      const bandCount = Math.max(bands?.bands.length ?? packed.rows.length, 1);
+      rowHs.push((geo.rOuter - geo.rInner) / bandCount);
+      const { t0, t1 } = sectionThetaRange(geo);
+      const rFit = (geo.rInner + geo.rOuter) / 2;
+      pitches.push((rFit * Math.abs(t1 - t0)) / packed.align.totalWeight);
+    }
+    pitches.sort((a, b) => a - b);
+    rowHs.sort((a, b) => a - b);
+    const pick = (values: number[], at: number, fallback: number) => {
+      if (!values.length) return fallback;
+      const index = Math.min(values.length - 1, Math.max(0, Math.floor((values.length - 1) * at)));
+      return values[index];
+    };
+    const w = Math.max(4.4, Math.min(pick(pitches, 0.35, 5.6) * 0.86, 6.4));
+    const h = Math.max(3.6, Math.min(pick(rowHs, 0.35, 5.2) * 0.64, w * 0.88));
+    return { w, h };
+  }, [geometries, layouts, rowBands]);
 
   const saleFlags = useMemo(() => {
     const flags = new Map<string, boolean>();
@@ -168,24 +200,30 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     });
   }, [activeId, clearFocus, seatIndex, setFocus, statusOf, transform.k]);
 
+  useEffect(() => () => clearFocus?.(), [clearFocus]);
+
   function zoomToSection(sectionId: string) {
     const geo = geometries.find((item) => item.sectionId === sectionId);
     if (!geo) return;
     const packed = layouts.get(sectionId);
     const points: { x: number; y: number }[] = [];
     if (packed) {
-      const bands = rowBands.get(sectionId);
+      const bands = rowBands.bands.get(sectionId);
+      const deltaR = rowBands.delta.get(sectionId) ?? 8;
       packed.rows.forEach((row, rowIndex) => {
-        const bandIndex = bands?.index.get(row.id) ?? rowIndex;
-        const bandCount = bands?.bands.length ?? packed.rows.length;
         for (const item of packed.align.rows[rowIndex] ?? []) {
           if (item.slot.kind !== "seat") continue;
           const id = seatId(sectionId, row.id, item.slot.number);
           if (statusOf(id) !== "available") continue;
-          points.push(polarAtFraction(geo, bandIndex, bandCount, item.t));
+          const radius = bands
+            ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)
+            : geo.rInner + ((rowIndex + 0.55) / Math.max(packed.rows.length, 1)) * (geo.rOuter - geo.rInner);
+          points.push(polarAtRadius(geo, radius, item.t));
         }
       });
     }
+    const centroid = sectionCentroid(geo);
+    setProbe({ x: centroid.x, y: centroid.y });
     if (points.length) {
       const pad = 36;
       fitBounds(
@@ -257,14 +295,16 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
       <div className="relative min-h-0 flex-1 bg-navy-deep">
         <svg
           viewBox={`${MAP.viewX} ${MAP.viewY} ${MAP.viewW} ${MAP.viewH}`}
-          className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
+          className="h-full w-full cursor-grab touch-none active:cursor-grabbing [&[data-gesturing]_[data-seat-id]]:pointer-events-none [&[data-gesturing]_text]:hidden"
+          style={{ touchAction: "none" }}
           onPointerDown={(event) => {
+            onPointerDown(event);
+            if (gesturingRef.current) return;
             const svg = event.currentTarget;
             const rect = svg.getBoundingClientRect();
             const vx = MAP.viewX + ((event.clientX - rect.left) / rect.width) * MAP.viewW;
             const vy = MAP.viewY + ((event.clientY - rect.top) / rect.height) * MAP.viewH;
             setProbe(viewToMap(vx, vy, transform));
-            onPointerDown(event);
           }}
           onPointerMove={(event) => {
             onPointerMove(event);
@@ -296,7 +336,11 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           aria-label="Mapa interactivo del Auditorio Nacional"
         >
           <rect width={MAP.width} height={MAP.height} fill={COLORS.navyDeep} />
-          <g ref={liveGroupRef} transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}>
+          <g
+            ref={liveGroupRef}
+            className="will-change-transform"
+            transform={`translate(${transform.x} ${transform.y}) scale(${transform.k})`}
+          >
             <path d={walkwayPath()} fill="#C5CAD3" />
             {geometries.map((geo) => {
               const onSale = saleFlags.get(geo.sectionId);
@@ -346,7 +390,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       geo={geo}
                       rows={packed.rows}
                       align={packed.align}
-                      bands={rowBands.get(geo.sectionId)}
+                      bands={rowBands.bands.get(geo.sectionId)}
+                      deltaR={rowBands.delta.get(geo.sectionId) ?? 8}
+                      seatW={seatBox.w}
+                      seatH={seatBox.h}
                       zoom={transform.k}
                       selected={selectedSet}
                       statusOf={statusOf}
@@ -447,6 +494,9 @@ function SectionSeats({
   rows,
   align,
   bands,
+  deltaR,
+  seatW,
+  seatH,
   zoom,
   selected,
   statusOf,
@@ -457,42 +507,36 @@ function SectionSeats({
   rows: RowSpec[];
   align: SectionAlignLayout;
   bands?: RowBandLayout;
+  deltaR: number;
+  seatW: number;
+  seatH: number;
   zoom: number;
   selected: Set<string>;
   statusOf: (id: string) => SeatStatus;
   onSeatClick: (id: string, status: SeatStatus) => void;
   onSeatHover: (seat: SeatHover | null) => void;
 }) {
-  const bandCount = Math.max(bands?.bands.length ?? rows.length, 1);
-  const rowH = (geo.rOuter - geo.rInner) / bandCount;
-  const { t0, t1 } = sectionThetaRange(geo);
-  const rFit = geo.rInner + (0.55 / bandCount) * (geo.rOuter - geo.rInner);
-  const pitch = (rFit * Math.abs(t1 - t0)) / Math.max(align.totalWeight, 1);
-  const seatW = Math.max(2.4, Math.min(pitch * 0.84, rowH * 0.76, 7.8));
-  const seatH = Math.max(2.1, Math.min(rowH * 0.68, seatW * 0.86));
   const hit = Math.max(seatW, seatH, 18 / zoom);
-
-  function bandIndexOf(rowId: string, rowIndex: number) {
-    return bands?.index.get(rowId) ?? rowIndex;
-  }
 
   return (
     <g>
       {rows.map((row, rowIndex) => {
         const placements = align.rows[rowIndex] ?? [];
-        const bandIndex = bandIndexOf(row.id, rowIndex);
         return placements.map((item) => {
           if (item.slot.kind !== "seat") return null;
           const number = item.slot.number;
-          const point = polarAtFraction(geo, bandIndex, bandCount, item.t);
+          const radius = bands
+            ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)
+            : geo.rInner + ((rowIndex + 0.55) / Math.max(rows.length, 1)) * (geo.rOuter - geo.rInner);
+          const point = polarAtRadius(geo, radius, item.t);
           const deg = (point.theta * 180) / Math.PI;
           const id = seatId(geo.sectionId, row.id, number);
           const status = statusOf(id);
           if (status === "unassigned" && zoom < 2.8) return null;
           const isSelected = selected.has(id);
           const code = `${row.id}${number}`;
-          const codeSize = Math.min(seatH * 0.5, (seatW * 0.88) / Math.max(code.length * 0.56, 1.6));
-          const showCode = seatW * zoom > 7;
+          const codeSize = Math.min(seatH * 0.34, (seatW * 0.62) / Math.max(code.length * 0.7, 2));
+          const showCode = seatW * zoom > 8.5;
           return (
             <g
               key={`${id}-${rowIndex}-${item.t}`}
@@ -549,11 +593,11 @@ function SectionSeats({
                   dominantBaseline="middle"
                   fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
                   stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
-                  strokeWidth={Math.max(0.35, codeSize * 0.08)}
+                  strokeWidth={Math.max(0.2, codeSize * 0.055)}
                   paintOrder="stroke"
                   fontSize={codeSize}
                   fontWeight="700"
-                  textLength={seatW * 0.86}
+                  textLength={seatW * 0.74}
                   lengthAdjust="spacingAndGlyphs"
                   className="pointer-events-none"
                 >
