@@ -134,53 +134,98 @@ function blockMaxCounts(
   );
 }
 
-function packSlotsInBand(
+function positionInBands(bands: { start: number; end: number }[], offset: number): number {
+  let remaining = Math.max(offset, 0);
+  for (const band of bands) {
+    const width = Math.max(band.end - band.start, 0);
+    if (remaining <= width) return band.start + remaining;
+    remaining -= width;
+  }
+  return bands[bands.length - 1]?.end ?? 0;
+}
+
+function packSlotsAcrossBands(
   slots: SeatSlot[],
-  bandStart: number,
-  bandEnd: number,
+  bands: { start: number; end: number }[],
   totalWeight: number,
   pin: "start" | "end" | "center",
 ): AlignedSlot[] {
-  if (!slots.length) return [];
+  if (!slots.length || !bands.length) return [];
   const weights = slots.map((slot) => (slot.kind === "seat" ? SEAT_WEIGHT : Math.max(slotWeight(slot), 0.3)));
-  const bandW = Math.max(bandEnd - bandStart, 0);
-  const extra = bandW - weights.reduce((sum, weight) => sum + weight, 0);
+  const usable = bands.reduce((sum, band) => sum + Math.max(band.end - band.start, 0), 0);
+  let leftover = usable - weights.reduce((sum, weight) => sum + weight, 0);
   const gapIdx = slots
     .map((slot, index) => (slot.kind === "clear" || slot.kind === "empty" ? index : -1))
     .filter((index) => index >= 0);
 
-  if (extra > 0.001 && gapIdx.length) {
-    const add = extra / gapIdx.length;
+  if (leftover > 0.001 && gapIdx.length) {
+    const add = leftover / gapIdx.length;
     for (const index of gapIdx) weights[index] += add;
-  } else if (extra < -0.001) {
-    let deficit = -extra;
+    leftover = 0;
+  } else if (leftover < -0.001 && gapIdx.length) {
+    let deficit = -leftover;
     for (const index of gapIdx) {
       const cut = Math.min(Math.max(weights[index] - 0.22, 0), deficit);
       weights[index] -= cut;
       deficit -= cut;
     }
+    leftover = usable - weights.reduce((sum, weight) => sum + weight, 0);
   }
 
+  const gaps = slots.map(() => 0);
   let pad = 0;
-  const leftover = bandW - weights.reduce((sum, weight) => sum + weight, 0);
-  if (leftover > 0.001 && !gapIdx.length) {
+  if (leftover > 0.001 && !gapIdx.length && slots.length > 1) {
+    const add = leftover / (slots.length - 1);
+    for (let i = 0; i < slots.length - 1; i += 1) gaps[i] = add;
+  } else if (leftover > 0.001) {
     if (pin === "end") pad = leftover;
     else if (pin === "center") pad = leftover / 2;
   }
 
-  let cursor = bandStart + pad;
+  let offset = pad;
   return slots.map((slot, index) => {
     const weight = weights[index];
-    const t = (cursor + weight / 2) / totalWeight;
-    cursor += weight;
+    const t = positionInBands(bands, offset + weight / 2) / totalWeight;
+    offset += weight + gaps[index];
     return { slot, t };
   });
 }
 
-function pinForBlock(index: number, blockCount: number): "start" | "end" | "center" {
-  if (blockCount <= 1) return "center";
-  if (index === 0) return "end";
-  if (index === blockCount - 1) return "start";
+function rowSegmentRanges(
+  rowBlocks: SeatSlot[][],
+  rowAisles: ("P1" | "P2")[],
+  aisleOrder: ("P1" | "P2")[],
+): { from: number; to: number; slots: SeatSlot[]; aisleAfter?: "P1" | "P2" }[] {
+  const blockCount = aisleOrder.length + 1;
+  if (!aisleOrder.length) {
+    return [{ from: 0, to: 0, slots: rowBlocks[0] ?? [] }];
+  }
+  if (!rowAisles.length) {
+    return [{ from: 0, to: blockCount - 1, slots: rowBlocks[0] ?? [] }];
+  }
+
+  const segments: { from: number; to: number; slots: SeatSlot[]; aisleAfter?: "P1" | "P2" }[] = [];
+  let nextBlock = 0;
+  for (let i = 0; i < rowAisles.length; i += 1) {
+    const dest = aisleOrder.indexOf(rowAisles[i]);
+    const before = dest >= 0 ? dest : nextBlock;
+    const from = nextBlock;
+    const to = Math.max(before, nextBlock);
+    if (from <= to) {
+      segments.push({ from, to, slots: rowBlocks[i] ?? [], aisleAfter: rowAisles[i] });
+    }
+    nextBlock = before + 1;
+  }
+  if (nextBlock <= blockCount - 1) {
+    segments.push({ from: nextBlock, to: blockCount - 1, slots: rowBlocks[rowAisles.length] ?? [] });
+  }
+  return segments;
+}
+
+function pinForSegment(from: number, to: number, blockCount: number): "start" | "end" | "center" {
+  if (blockCount <= 1 || (from === 0 && to >= blockCount - 1)) return "center";
+  if (from === 0) return "start";
+  if (to >= blockCount - 1) return "end";
   return "center";
 }
 
@@ -189,9 +234,6 @@ export function buildSectionAlignLayout(rows: RowSpec[]): SectionAlignLayout {
   const aisleOrder = globalAisleOrder(split);
   const blockCount = aisleOrder.length + 1;
   const maxCounts = blockMaxCounts(split, aisleOrder);
-  const mapped = split.map((row) =>
-    mapRowToGlobalBlocks(row.blocks, row.aisles, aisleOrder, maxCounts),
-  );
 
   const bands: { type: "block" | "aisle"; id?: "P1" | "P2"; start: number; end: number }[] = [];
   let cursor = 0;
@@ -216,26 +258,23 @@ export function buildSectionAlignLayout(rows: RowSpec[]): SectionAlignLayout {
       width: aisleWidth,
     }));
 
-  const alignedRows = mapped.map((blocks, rowIndex) => {
+  const alignedRows = split.map((row) => {
     const placements: AlignedSlot[] = [];
-    const rowAisles = new Set(split[rowIndex].aisles);
-    for (let i = 0; i < blockCount; i += 1) {
-      const items = blocks[i] ?? [];
-      const band = blockBands[i];
-      packSlotsInBand(
-        items,
-        band.start,
-        band.end,
+    const segments = rowSegmentRanges(row.blocks, row.aisles, aisleOrder);
+    for (const segment of segments) {
+      const bands = blockBands.slice(segment.from, segment.to + 1);
+      packSlotsAcrossBands(
+        segment.slots,
+        bands,
         totalWeight,
-        pinForBlock(i, blockCount),
+        pinForSegment(segment.from, segment.to, blockCount),
       ).forEach((placement) => {
         placements.push(placement);
       });
-      const aisleId = aisleOrder[i];
-      if (aisleId && rowAisles.has(aisleId)) {
-        const aisle = aisles.find((item) => item.id === aisleId);
+      if (segment.aisleAfter) {
+        const aisle = aisles.find((item) => item.id === segment.aisleAfter);
         if (aisle) {
-          placements.push({ slot: { kind: "aisle", id: aisleId }, t: aisle.t });
+          placements.push({ slot: { kind: "aisle", id: segment.aisleAfter }, t: aisle.t });
         }
       }
     }
