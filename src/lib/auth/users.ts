@@ -2,6 +2,8 @@ import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseRole, type Role } from "@/lib/auth/roles";
+import { sheetsConfigured } from "@/lib/sheets/client";
+import { readUsersFromSheets, writeUsersToSheets } from "@/lib/sheets/users";
 
 export interface AuthUser {
   email: string;
@@ -89,10 +91,39 @@ async function readFileUsers(): Promise<AuthUser[]> {
   }
 }
 
+async function loadStoredUsers(): Promise<AuthUser[]> {
+  const fileUsers = await readFileUsers();
+  if (!sheetsConfigured()) return fileUsers;
+  try {
+    const sheetUsers = await readUsersFromSheets();
+    const map = new Map<string, AuthUser>();
+    for (const user of fileUsers) map.set(user.email, user);
+    for (const user of sheetUsers) map.set(user.email, user);
+    return [...map.values()];
+  } catch {
+    return fileUsers;
+  }
+}
+
+async function saveStoredUsers(stored: AuthUser[]): Promise<void> {
+  await mkdir(path.dirname(USERS_FILE), { recursive: true });
+  await writeFile(USERS_FILE, JSON.stringify(stored, null, 2), "utf8");
+  if (!sheetsConfigured()) {
+    if (process.env.VERCEL) {
+      throw new Error("Google Sheets no está configurado; no se pueden guardar usuarios en producción");
+    }
+    return;
+  }
+  const merged = new Map<string, AuthUser>();
+  for (const user of stored) merged.set(user.email, user);
+  for (const user of parseEnvUsers(process.env.AUTH_USERS)) merged.set(user.email, user);
+  await writeUsersToSheets([...merged.values()]);
+}
+
 export async function listUsers(): Promise<AuthUser[]> {
   const map = new Map<string, AuthUser>();
+  for (const user of await loadStoredUsers()) map.set(user.email, user);
   for (const user of parseEnvUsers(process.env.AUTH_USERS)) map.set(user.email, user);
-  for (const user of await readFileUsers()) map.set(user.email, user);
   return [...map.values()];
 }
 
@@ -130,9 +161,8 @@ export async function createUser(input: {
     passwordHash: hashPassword(input.password),
     source: "file",
   };
-  const fileUsers = await readFileUsers();
-  await mkdir(path.dirname(USERS_FILE), { recursive: true });
-  await writeFile(USERS_FILE, JSON.stringify([...fileUsers, next], null, 2), "utf8");
+  const stored = await loadStoredUsers();
+  await saveStoredUsers([...stored, next]);
   return next;
 }
 
@@ -142,13 +172,12 @@ export async function deleteUser(email: string): Promise<void> {
   if (envHit) {
     throw new Error("Los usuarios definidos en AUTH_USERS no se pueden eliminar desde la app");
   }
-  const fileUsers = await readFileUsers();
-  const next = fileUsers.filter((user) => user.email !== needle);
-  if (next.length === fileUsers.length) {
+  const stored = await loadStoredUsers();
+  const next = stored.filter((user) => user.email !== needle);
+  if (next.length === stored.length) {
     throw new Error("Usuario no encontrado");
   }
-  await mkdir(path.dirname(USERS_FILE), { recursive: true });
-  await writeFile(USERS_FILE, JSON.stringify(next, null, 2), "utf8");
+  await saveStoredUsers(next);
 }
 
 export function publicUser(user: AuthUser) {

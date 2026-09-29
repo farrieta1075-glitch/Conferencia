@@ -8,7 +8,8 @@ import type {
   VenueTabulador,
 } from "@/lib/types";
 import { remainingBalance } from "@/lib/purchases";
-import { publicUser, listUsers } from "@/lib/auth/users";
+import { listUsers } from "@/lib/auth/users";
+import { writeUsersToSheets } from "@/lib/sheets/users";
 import { rowSlots, serializeSeatLayout } from "@/lib/tabulador/seats";
 import { readSeatStatusFromSheets } from "@/lib/sheets/load";
 import {
@@ -219,14 +220,7 @@ export async function applySheetsDelta(delta: SheetsDelta) {
   }
 
   if (delta.writeUsers) {
-    const users = await listUsers();
-    await replaceTab(spreadsheetId, "Usuarios", [
-      ["correo", "nombre", "rol", "origen"],
-      ...users.map((user) => {
-        const pub = publicUser(user);
-        return [pub.email, pub.name, pub.role, pub.source];
-      }),
-    ]);
+    await writeUsersToSheets(await listUsers());
   }
 
   return { ok: true, skipped: false, spreadsheetId };
