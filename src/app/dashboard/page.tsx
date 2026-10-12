@@ -24,7 +24,7 @@ function monthLabel(key: string) {
 export default function DashboardPage() {
   const { state, statusOf } = useEventStore();
   const { campus } = useCampus();
-  const [open, setOpen] = useState<"cashflow" | "methods" | "seats" | null>(null);
+  const [open, setOpen] = useState<"methods" | "seats" | null>(null);
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
   const [cobrosOpen, setCobrosOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
@@ -88,22 +88,10 @@ export default function DashboardPage() {
       byMonth.set(key, list);
     }
 
-    const cashflow = new Map<string, { received: number; pending: number }>();
     const methods = new Map<string, { card: number; cash: number; pending: number }>();
     const seatsWeek = new Map<string, { sold: number; held: number }>();
-    const cashByDay = new Map<string, { received: number; pending: number }>();
     const methodsByDay = new Map<string, { card: number; cash: number; pending: number }>();
     const seatsByDay = new Map<string, { sold: number; held: number }>();
-    const bump = (
-      map: Map<string, { received: number; pending: number }>,
-      key: string,
-      field: "received" | "pending",
-      amount: number,
-    ) => {
-      const row = map.get(key) ?? { received: 0, pending: 0 };
-      row[field] += amount;
-      map.set(key, row);
-    };
     for (const purchase of livePurchases) {
       if (isNamelessBlock(purchase)) {
         const seatKind = remainingBalance(purchase) <= 0.009 ? "sold" : "held";
@@ -121,8 +109,6 @@ export default function DashboardPage() {
       for (const payment of activePayments(purchase)) {
         const day = payment.date.slice(0, 10);
         const key = weekStart(payment.date);
-        bump(cashflow, key, "received", payment.amount);
-        bump(cashByDay, day, "received", payment.amount);
         const methodRow = methods.get(key) ?? { card: 0, cash: 0, pending: 0 };
         methodRow[purchase.paymentMethod] += payment.amount;
         methods.set(key, methodRow);
@@ -133,8 +119,6 @@ export default function DashboardPage() {
       for (const item of purchase.installments.filter((entry) => !entry.paid)) {
         const day = item.date.slice(0, 10);
         const week = weekStart(item.date);
-        bump(cashflow, week, "pending", item.amount);
-        bump(cashByDay, day, "pending", item.amount);
         const methodRow = methods.get(week) ?? { card: 0, cash: 0, pending: 0 };
         methodRow.pending += item.amount;
         methods.set(week, methodRow);
@@ -155,18 +139,9 @@ export default function DashboardPage() {
     }
 
     const currentWeek = weekStart(new Date().toISOString());
-    const dataWeeks = [...cashflow.keys(), ...methods.keys(), ...seatsWeek.keys()].sort();
+    const dataWeeks = [...methods.keys(), ...seatsWeek.keys()].sort();
     const fromWeek = dataWeeks[0] ?? addDays(currentWeek, -7 * 7);
-    const cashWeeks = enumerateWeeks(fromWeek, addDays(currentWeek, 7 * 4));
     const methodWeeks = enumerateWeeks(fromWeek, addDays(currentWeek, 7 * 4));
-    const cashPoints: BarPoint[] = cashWeeks.map((key) => ({
-      id: key,
-      label: weekLabel(key),
-      values: {
-        received: cashflow.get(key)?.received ?? 0,
-        pending: cashflow.get(key)?.pending ?? 0,
-      },
-    }));
     const methodPoints: BarPoint[] = methodWeeks.map((key) => ({
       id: key,
       label: weekLabel(key),
@@ -194,10 +169,8 @@ export default function DashboardPage() {
       pendiente,
       byPromo,
       byMonth,
-      cashPoints,
       methodPoints,
       seatPoints,
-      cashByDay,
       methodsByDay,
       seatsByDay,
       daysOf,
@@ -208,10 +181,6 @@ export default function DashboardPage() {
     };
   }, [state.purchases, state.prices, state.promotions, state.tabulador, state.foreignSeats, statusOf]);
 
-  const cashSeries: BarSeries[] = [
-    { key: "received", label: "Recibido", color: "#16A34A" },
-    { key: "pending", label: "Pendiente", color: "#D97706" },
-  ];
   const methodSeries: BarSeries[] = [
     { key: "card", label: "Tarjeta", color: "#1C2541" },
     { key: "cash", label: "Efectivo", color: "#9A6B43" },
@@ -243,21 +212,10 @@ export default function DashboardPage() {
         </article>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <section className="grid gap-3 sm:grid-cols-2">
         <article className="card p-4">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold">Recibido vs pendiente / semana</p>
-            <button type="button" className="text-xs font-semibold text-bronze-dark" onClick={() => setOpen("cashflow")}>
-              Ampliar
-            </button>
-          </div>
-          <div className="mt-2 h-40 overflow-x-auto">
-            <MiniBarChart stacked series={cashSeries} points={metrics.cashPoints} height={150} />
-          </div>
-        </article>
-        <article className="card p-4">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-semibold">Formas de pago / semana</p>
+            <p className="text-sm font-semibold">Venta / semana</p>
             <button type="button" className="text-xs font-semibold text-bronze-dark" onClick={() => setOpen("methods")}>
               Ampliar
             </button>
@@ -359,11 +317,7 @@ export default function DashboardPage() {
           <div className="card max-h-[90dvh] w-full max-w-3xl overflow-y-auto p-5" onClick={(event) => event.stopPropagation()}>
             <div className="mb-3 flex items-center justify-between">
               <h3 className="font-display text-2xl">
-                {open === "cashflow"
-                  ? "Recibido vs pendiente"
-                  : open === "methods"
-                    ? "Formas de pago"
-                    : "Asientos vendidos"}
+                {open === "methods" ? "Venta / semana" : "Asientos vendidos"}
               </h3>
               <button type="button" className="btn-ghost" onClick={() => setOpen(null)}>
                 Cerrar
@@ -373,14 +327,8 @@ export default function DashboardPage() {
               <MiniBarChart
                 stacked
                 format={open === "seats" ? "count" : "k"}
-                series={open === "cashflow" ? cashSeries : open === "methods" ? methodSeries : seatSeries}
-                points={
-                  open === "cashflow"
-                    ? metrics.cashPoints
-                    : open === "methods"
-                      ? metrics.methodPoints
-                      : metrics.seatPoints
-                }
+                series={open === "methods" ? methodSeries : seatSeries}
+                points={open === "methods" ? metrics.methodPoints : metrics.seatPoints}
                 height={240}
                 selectedId={expandedWeek}
                 onSelect={(id) => setExpandedWeek((current) => (current === id ? null : id))}
@@ -392,24 +340,19 @@ export default function DashboardPage() {
                 <MiniBarChart
                   stacked
                   format={open === "seats" ? "count" : "k"}
-                  series={open === "cashflow" ? cashSeries : open === "methods" ? methodSeries : seatSeries}
+                  series={open === "methods" ? methodSeries : seatSeries}
                   points={metrics.daysOf(expandedWeek).map((day) => {
                     const values: Record<string, number> =
-                      open === "cashflow"
+                      open === "methods"
                         ? {
-                            received: metrics.cashByDay.get(day)?.received ?? 0,
-                            pending: metrics.cashByDay.get(day)?.pending ?? 0,
+                            card: metrics.methodsByDay.get(day)?.card ?? 0,
+                            cash: metrics.methodsByDay.get(day)?.cash ?? 0,
+                            pending: metrics.methodsByDay.get(day)?.pending ?? 0,
                           }
-                        : open === "methods"
-                          ? {
-                              card: metrics.methodsByDay.get(day)?.card ?? 0,
-                              cash: metrics.methodsByDay.get(day)?.cash ?? 0,
-                              pending: metrics.methodsByDay.get(day)?.pending ?? 0,
-                            }
-                          : {
-                              sold: metrics.seatsByDay.get(day)?.sold ?? 0,
-                              held: metrics.seatsByDay.get(day)?.held ?? 0,
-                            };
+                        : {
+                            sold: metrics.seatsByDay.get(day)?.sold ?? 0,
+                            held: metrics.seatsByDay.get(day)?.held ?? 0,
+                          };
                     return { id: day, label: dayLabel(day), values };
                   })}
                   height={180}
@@ -419,7 +362,7 @@ export default function DashboardPage() {
               <p className="mt-2 text-sm text-ink-muted">Toca una semana para verla por día.</p>
             )}
             <ul className="mt-3 flex flex-wrap gap-3 text-sm">
-              {(open === "cashflow" ? cashSeries : open === "methods" ? methodSeries : seatSeries).map((item) => (
+              {(open === "methods" ? methodSeries : seatSeries).map((item) => (
                 <li key={item.key} className="flex items-center gap-2">
                   <span className="h-3 w-3 rounded-sm" style={{ background: item.color }} />
                   {item.label}
