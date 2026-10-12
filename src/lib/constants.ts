@@ -3,6 +3,7 @@ import type { AreaId } from "./types";
 export const STORAGE_KEY = "auditorio-nacional-boletos-v8";
 
 export const NO_EMAIL = "sin correo";
+export const NO_PHONE = "sin telefono";
 
 export const COLORS = {
   navy: "#0B132B",
@@ -20,7 +21,7 @@ export const COLORS = {
   held: "#D97706",
   sold: "#DC2626",
   unassigned: "#CBD5E1",
-  foreign: "#94A3B8",
+  foreign: "#CBD5E1",
 } as const;
 
 export const AREA_ORDER: AreaId[] = [

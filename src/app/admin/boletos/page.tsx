@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { RoleGate, useCurrentRole } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
-import { NO_EMAIL } from "@/lib/constants";
+import { NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import { formatDate, money, parseSeatId } from "@/lib/format";
-import { remainingBalance, type PurchasePatch } from "@/lib/purchases";
+import { isNamelessBlock, remainingBalance, type PurchasePatch } from "@/lib/purchases";
 import type { Purchase } from "@/lib/types";
 
 function firstHolder(purchase: Purchase) {
+  if (isNamelessBlock(purchase)) return "Bloqueo sin nombre";
   return purchase.tickets[0]?.holderName?.trim() || (purchase.customer.email === NO_EMAIL ? "" : purchase.customer.email);
 }
 
@@ -23,7 +24,7 @@ function seatSummary(purchase: Purchase) {
 }
 
 export default function BoletosAdminPage() {
-  const { state, seatIndex, updatePurchase, applyPayment, voidPayment } = useEventStore();
+  const { state, seatIndex, updatePurchase, applyPayment, voidPayment, releaseBlock } = useEventStore();
   const role = useCurrentRole();
   const canVoid = role === "ADMIN";
   const [query, setQuery] = useState("");
@@ -33,6 +34,7 @@ export default function BoletosAdminPage() {
   const [amount, setAmount] = useState(0);
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [withPhone, setWithPhone] = useState(true);
   const [withEmail, setWithEmail] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -46,9 +48,11 @@ export default function BoletosAdminPage() {
       return;
     }
     const hasEmail = Boolean(selected.customer.email) && selected.customer.email.trim().toLowerCase() !== NO_EMAIL;
+    const hasPhone = Boolean(selected.customer.phone) && selected.customer.phone.trim().toLowerCase() !== NO_PHONE;
     setWithEmail(hasEmail);
+    setWithPhone(hasPhone);
     setDraft({
-      phone: selected.customer.phone,
+      phone: hasPhone ? selected.customer.phone : "",
       email: hasEmail ? selected.customer.email : "",
       tickets: selected.tickets.map((ticket) => ({
         id: ticket.id,
@@ -93,6 +97,7 @@ export default function BoletosAdminPage() {
     try {
       await updatePurchase(selected.id, {
         ...draft,
+        phone: withPhone ? (draft.phone ?? "").trim() : NO_PHONE,
         email: withEmail ? (draft.email ?? "").trim() : NO_EMAIL,
       });
       setMessage("Datos del boleto actualizados.");
@@ -216,28 +221,46 @@ export default function BoletosAdminPage() {
               </button>
             </div>
             <RoleGate allow="tickets:edit">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5"
-                  checked={withEmail}
-                  onChange={(event) => {
-                    setWithEmail(event.target.checked);
-                    if (!event.target.checked) {
-                      setDraft((current) => ({ ...current, email: NO_EMAIL }));
-                    } else if ((draft.email ?? "").toLowerCase() === NO_EMAIL) {
-                      setDraft((current) => ({ ...current, email: "" }));
-                    }
-                  }}
-                />
-                El cliente proporciona correo
-              </label>
               <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5"
+                    checked={withPhone}
+                    onChange={(event) => {
+                      setWithPhone(event.target.checked);
+                      if (!event.target.checked) {
+                        setDraft((current) => ({ ...current, phone: NO_PHONE }));
+                      } else if ((draft.phone ?? "").toLowerCase() === NO_PHONE) {
+                        setDraft((current) => ({ ...current, phone: "" }));
+                      }
+                    }}
+                  />
+                  El cliente proporciona teléfono
+                </label>
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5"
+                    checked={withEmail}
+                    onChange={(event) => {
+                      setWithEmail(event.target.checked);
+                      if (!event.target.checked) {
+                        setDraft((current) => ({ ...current, email: NO_EMAIL }));
+                      } else if ((draft.email ?? "").toLowerCase() === NO_EMAIL) {
+                        setDraft((current) => ({ ...current, email: "" }));
+                      }
+                    }}
+                  />
+                  El cliente proporciona correo
+                </label>
                 <label className="text-sm font-medium text-ink-muted">
                   Teléfono
                   <input
                     className="field mt-1"
-                    value={draft.phone ?? ""}
+                    disabled={!withPhone}
+                    placeholder={withPhone ? "" : NO_PHONE}
+                    value={withPhone ? (draft.phone === NO_PHONE ? "" : (draft.phone ?? "")) : ""}
                     onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
                   />
                 </label>
@@ -284,9 +307,36 @@ export default function BoletosAdminPage() {
                   );
                 })}
               </ul>
-              <button type="button" className="btn-ghost w-fit" disabled={busy} onClick={() => void saveSelected()}>
-                Guardar datos
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-ghost w-fit" disabled={busy} onClick={() => void saveSelected()}>
+                  Guardar datos
+                </button>
+                {canVoid && isNamelessBlock(selected) ? (
+                  <button
+                    type="button"
+                    className="btn-secondary w-fit"
+                    disabled={busy}
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(true);
+                        setError("");
+                        setMessage("");
+                        try {
+                          await releaseBlock(selected.id);
+                          setSelectedId(null);
+                          setMessage("Lugares desbloqueados.");
+                        } catch (err) {
+                          setError(err instanceof Error ? err.message : "No se pudo desbloquear");
+                        } finally {
+                          setBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    Desbloquear lugares
+                  </button>
+                ) : null}
+              </div>
             </RoleGate>
 
             <div className="rounded-2xl bg-surface p-4">

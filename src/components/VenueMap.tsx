@@ -18,14 +18,14 @@ import {
 } from "@/lib/geometry";
 import { boundsOf, findNeighbors, sectionAtPoint, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
-import { findPurchaseBySeat } from "@/lib/purchases";
+import { findPurchaseBySeat, isNamelessBlock } from "@/lib/purchases";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
 import { radiusForRow, resolveRowBands, rowDeltaR, type RowBandLayout } from "@/lib/tabulador/rowBands";
 import { sortedRows } from "@/lib/tabulador/seats";
 import type { RowSpec, SeatRef, SeatStatus, SectionGeometry } from "@/lib/types";
 import { PurchaseModal } from "./PurchaseModal";
 import { SeatPurchasePeek, type SeatPurchasePeekState } from "./SeatPurchasePeek";
-import { RoleGate, useCan } from "./auth/RoleGate";
+import { RoleGate, useCan, useCurrentRole } from "./auth/RoleGate";
 import { usePanZoom } from "./usePanZoom";
 
 const STATUS_FILL: Record<SeatStatus, string> = {
@@ -77,7 +77,7 @@ interface VenueMapProps {
 }
 
 export function VenueMap({ focusSectionId = null }: VenueMapProps) {
-  const { state, statusOf, seatIndex } = useEventStore();
+  const { state, statusOf, seatIndex, blockSeats, releaseBlock } = useEventStore();
   const salesFocus = useSalesFocus();
   const setFocus = salesFocus?.setFocus;
   const clearFocus = salesFocus?.clearFocus;
@@ -93,6 +93,9 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const [hoverSeat, setHoverSeat] = useState<SeatHover | null>(null);
   const [showLegend, setShowLegend] = useState(false);
   const canSell = useCan("sales:create");
+  const isAdmin = useCurrentRole() === "ADMIN";
+  const [blocking, setBlocking] = useState(false);
+  const [blockError, setBlockError] = useState("");
 
   const geometries = useMemo(
     () => buildSectionGeometry(state.tabulador),
@@ -506,7 +509,20 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             </text>
           </g>
         </svg>
-        {peek ? createPortal(<SeatPurchasePeek peek={peek} onClose={closePeek} />, document.body) : null}
+        {peek
+          ? createPortal(
+              <SeatPurchasePeek
+                peek={peek}
+                onClose={closePeek}
+                canRelease={isAdmin && isNamelessBlock(peek.purchase)}
+                onRelease={async () => {
+                  await releaseBlock(peek.purchase.id);
+                  closePeek();
+                }}
+              />,
+              document.body,
+            )
+          : null}
         <div className="absolute left-2 top-2 z-10 sm:left-3 sm:top-3">
           <button
             type="button"
@@ -550,9 +566,35 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             <p className="text-sm text-ink-muted">
               {selected.length} asiento(s) · {money(total)}. Toca de nuevo para quitar.
             </p>
-            <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => setOpen(true)}>
-              Comprar seleccionados · {money(total)}
-            </button>
+            <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+              {isAdmin ? (
+                <button
+                  type="button"
+                  className="btn-ghost w-full sm:w-auto"
+                  disabled={blocking}
+                  onClick={() => {
+                    void (async () => {
+                      setBlocking(true);
+                      setBlockError("");
+                      try {
+                        await blockSeats(selected);
+                        setSelected([]);
+                      } catch (err) {
+                        setBlockError(err instanceof Error ? err.message : "No se pudo bloquear");
+                      } finally {
+                        setBlocking(false);
+                      }
+                    })();
+                  }}
+                >
+                  {blocking ? "Bloqueando…" : "Bloquear sin nombre"}
+                </button>
+              ) : null}
+              <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => setOpen(true)}>
+                Comprar seleccionados · {money(total)}
+              </button>
+            </div>
+            {blockError ? <p className="w-full text-sm text-sold">{blockError}</p> : null}
           </div>
         )}
         <PurchaseModal
@@ -611,7 +653,6 @@ const SectionSeats = memo(function SectionSeats({
           const number = item.slot.number;
           const id = seatId(geo.sectionId, row.id, number);
           const status = statusOf(id);
-          if (status === "foreign") return null;
           if (status === "unassigned" && !includeUnassigned) return null;
           const radius = bands
             ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)
@@ -672,7 +713,7 @@ const SectionSeats = memo(function SectionSeats({
                 width={seatW}
                 height={seatH}
                 rx={Math.min(1.6, seatW / 5)}
-                fill={STATUS_FILL[status]}
+                fill={STATUS_FILL[status === "foreign" ? "unassigned" : status]}
                 stroke={isPeeked ? "#E8C39A" : isSelected ? "#F8FAFC" : "#0B132B"}
                 strokeWidth={(isSelected ? 1.35 : 0.32) / zoom}
               />
@@ -681,8 +722,8 @@ const SectionSeats = memo(function SectionSeats({
                   y={codeSize * 0.08}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
-                  stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
+                  fill={status === "unassigned" || status === "foreign" ? "#0B132B" : "#F8FAFC"}
+                  stroke={status === "unassigned" || status === "foreign" ? "#F8FAFC" : "#060B18"}
                   strokeWidth={Math.max(0.2, codeSize * 0.055)}
                   paintOrder="stroke"
                   fontSize={codeSize}

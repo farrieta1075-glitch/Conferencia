@@ -259,7 +259,7 @@ export function CurvedSeatMap({
                     width={22}
                     height={18}
                     rx={4}
-                    fill={STATUS_FILL[status]}
+                    fill={STATUS_FILL[status === "foreign" ? "unassigned" : status]}
                     stroke={isSelected ? "#F8FAFC" : "#0B132B"}
                     strokeWidth={isSelected ? 2.2 : 0.8}
                   />

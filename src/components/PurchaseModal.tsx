@@ -6,7 +6,7 @@ import { formatDate, money } from "@/lib/format";
 import { buildInstallmentPlans } from "@/lib/installments";
 import { whatsAppPreviewUrl } from "@/lib/notifications";
 import { priceForSeat } from "@/lib/pricing";
-import { NO_EMAIL } from "@/lib/constants";
+import { NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import type { InstallmentCount, PaymentMethod, PaymentMode, SeatRef } from "@/lib/types";
 
 interface PurchaseModalProps {
@@ -23,6 +23,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
   const [names, setNames] = useState<string[]>(() => seats.map(() => ""));
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [withPhone, setWithPhone] = useState(true);
   const [withEmail, setWithEmail] = useState(true);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("total");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
@@ -37,6 +38,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
     setNames(Array.from({ length: seats.length }, () => ""));
     setPhone("");
     setEmail("");
+    setWithPhone(true);
     setWithEmail(true);
     setDeposit(0);
     setError("");
@@ -72,8 +74,8 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
       setError("Captura el nombre del titular de cada boleto.");
       return;
     }
-    if (!phone.trim()) {
-      setError("El teléfono es obligatorio.");
+    if (withPhone && !phone.trim()) {
+      setError("Captura el teléfono o desactívalo.");
       return;
     }
     if (withEmail && !email.trim()) {
@@ -95,13 +97,13 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
       await buy({
         seatIds: seats.map((seat) => seat.id),
         holderNames,
-        phone: phone.trim(),
+        phone: withPhone ? phone.trim() : NO_PHONE,
         email: withEmail ? email.trim() : NO_EMAIL,
         paymentMode,
         paymentMethod,
         deposit: paymentMode === "partial" ? deposit : total,
         selectedPlan: paymentMode === "partial" ? plan : undefined,
-        remindWhatsApp: paymentMode === "partial" && remindWhatsApp,
+        remindWhatsApp: paymentMode === "partial" && withPhone && remindWhatsApp,
         remindEmail: paymentMode === "partial" && withEmail && remindEmail,
       });
       setNames(Array.from({ length: seats.length }, () => ""));
@@ -174,12 +176,23 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
               />
             </label>
           ))}
-          <label className="text-sm font-medium text-ink-muted">
-            Teléfono
-            <input className="field mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </label>
-          <div>
-            <label className="mb-2 flex min-h-12 items-center gap-3 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex min-h-12 items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="h-5 w-5"
+                checked={withPhone}
+                onChange={(event) => {
+                  setWithPhone(event.target.checked);
+                  if (!event.target.checked) {
+                    setPhone("");
+                    setRemindWhatsApp(false);
+                  }
+                }}
+              />
+              El cliente proporciona teléfono
+            </label>
+            <label className="flex min-h-12 items-center gap-3 text-sm">
               <input
                 type="checkbox"
                 className="h-5 w-5"
@@ -191,19 +204,27 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
               />
               El cliente proporciona correo
             </label>
-            {withEmail ? (
-              <label className="text-sm font-medium text-ink-muted">
-                Correo electrónico
-                <input
-                  className="field mt-1"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </label>
-            ) : (
-              <p className="text-sm text-ink-muted">Se registrará como {NO_EMAIL}.</p>
-            )}
+            <label className="text-sm font-medium text-ink-muted">
+              Teléfono
+              <input
+                className="field mt-1"
+                disabled={!withPhone}
+                placeholder={withPhone ? "" : NO_PHONE}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </label>
+            <label className="text-sm font-medium text-ink-muted">
+              Correo electrónico
+              <input
+                className="field mt-1"
+                type="email"
+                disabled={!withEmail}
+                placeholder={withEmail ? "" : NO_EMAIL}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
           </div>
         </div>
 
@@ -282,6 +303,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
               ))}
             </div>
             <div className="mt-3 space-y-2 text-sm">
+              {withPhone ? (
               <label className="flex min-h-12 items-center gap-2">
                 <input
                   type="checkbox"
@@ -291,6 +313,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
                 />
                 Programar recordatorios por WhatsApp (simulado)
               </label>
+              ) : null}
               {withEmail ? (
                 <label className="flex min-h-12 items-center gap-2">
                   <input
@@ -302,7 +325,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
                   Programar recordatorios por correo (simulado)
                 </label>
               ) : null}
-              {phone && (
+              {withPhone && phone && (
                 <a
                   className="text-bronze-dark underline"
                   href={whatsAppPreviewUrl(phone, previewMessage)}

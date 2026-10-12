@@ -90,8 +90,8 @@ export default function AsientosAdminPage() {
         <p className="text-xs uppercase tracking-wider text-bronze-dark">Asientos</p>
         <h2 className="font-display text-3xl">Asignación de áreas y asientos</h2>
         <p className="mt-2 text-sm text-ink-muted">
-          Verde = a la venta. Gris claro = no asignado. Gris más oscuro = de otro campus (no se
-          puede asignar). Los cambios son un borrador hasta pulsar{" "}
+          Verde = a la venta. Gris = no asignado (incluye asientos de otro campus, que no se
+          pueden asignar aquí). Los cambios son un borrador hasta pulsar{" "}
           <strong>Guardar disponibilidad</strong>; solo entonces aparecen en el módulo de venta.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">

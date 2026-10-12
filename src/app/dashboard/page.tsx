@@ -6,7 +6,7 @@ import { RoleGate } from "@/components/auth/RoleGate";
 import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
 import { formatDate, money } from "@/lib/format";
-import { activePayments, remainingBalance } from "@/lib/purchases";
+import { activePayments, isNamelessBlock, remainingBalance } from "@/lib/purchases";
 import { flattenSeats } from "@/lib/tabulador/generator";
 import { priceForSeat } from "@/lib/pricing";
 import { addDays, dayLabel, enumerateWeeks, weekLabel, weekStart } from "@/lib/weeks";
@@ -46,15 +46,16 @@ export default function DashboardPage() {
     }
 
     const livePurchases = state.purchases.filter((purchase) => !purchase.cancelled);
-    const cobrado = livePurchases.reduce((sum, purchase) => sum + purchase.paid, 0);
-    const pendiente = livePurchases.reduce(
+    const salePurchases = livePurchases.filter((purchase) => !isNamelessBlock(purchase));
+    const cobrado = salePurchases.reduce((sum, purchase) => sum + purchase.paid, 0);
+    const pendiente = salePurchases.reduce(
       (sum, purchase) => sum + Math.max(0, purchase.total - purchase.paid),
       0,
     );
     const committedSeats = counts.held + counts.sold;
 
     const byPromo = new Map<string, { tickets: number; amount: number }>();
-    for (const purchase of livePurchases) {
+    for (const purchase of salePurchases) {
       for (const ticket of purchase.tickets) {
         const key = ticket.promotionName ?? "Sin promoción";
         const current = byPromo.get(key) ?? { tickets: 0, amount: 0 };
@@ -64,7 +65,7 @@ export default function DashboardPage() {
       }
     }
 
-    const upcoming = livePurchases
+    const upcoming = salePurchases
       .flatMap((purchase) =>
         purchase.installments
           .filter((item) => !item.paid)
@@ -88,10 +89,10 @@ export default function DashboardPage() {
     }
 
     const cashflow = new Map<string, { received: number; pending: number }>();
-    const methods = new Map<string, { card: number; cash: number }>();
+    const methods = new Map<string, { card: number; cash: number; pending: number }>();
     const seatsWeek = new Map<string, { sold: number; held: number }>();
     const cashByDay = new Map<string, { received: number; pending: number }>();
-    const methodsByDay = new Map<string, { card: number; cash: number }>();
+    const methodsByDay = new Map<string, { card: number; cash: number; pending: number }>();
     const seatsByDay = new Map<string, { sold: number; held: number }>();
     const bump = (
       map: Map<string, { received: number; pending: number }>,
@@ -104,22 +105,42 @@ export default function DashboardPage() {
       map.set(key, row);
     };
     for (const purchase of livePurchases) {
+      if (isNamelessBlock(purchase)) {
+        const seatKind = remainingBalance(purchase) <= 0.009 ? "sold" : "held";
+        const seatDay = purchase.createdAt.slice(0, 10);
+        const seatWeek = weekStart(purchase.createdAt);
+        const seatCount = purchase.tickets.length;
+        const weekRow = seatsWeek.get(seatWeek) ?? { sold: 0, held: 0 };
+        weekRow[seatKind] += seatCount;
+        seatsWeek.set(seatWeek, weekRow);
+        const dayRow = seatsByDay.get(seatDay) ?? { sold: 0, held: 0 };
+        dayRow[seatKind] += seatCount;
+        seatsByDay.set(seatDay, dayRow);
+        continue;
+      }
       for (const payment of activePayments(purchase)) {
         const day = payment.date.slice(0, 10);
         const key = weekStart(payment.date);
         bump(cashflow, key, "received", payment.amount);
         bump(cashByDay, day, "received", payment.amount);
-        const methodRow = methods.get(key) ?? { card: 0, cash: 0 };
+        const methodRow = methods.get(key) ?? { card: 0, cash: 0, pending: 0 };
         methodRow[purchase.paymentMethod] += payment.amount;
         methods.set(key, methodRow);
-        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0 };
+        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, pending: 0 };
         methodDay[purchase.paymentMethod] += payment.amount;
         methodsByDay.set(day, methodDay);
       }
       for (const item of purchase.installments.filter((entry) => !entry.paid)) {
         const day = item.date.slice(0, 10);
-        bump(cashflow, weekStart(item.date), "pending", item.amount);
+        const week = weekStart(item.date);
+        bump(cashflow, week, "pending", item.amount);
         bump(cashByDay, day, "pending", item.amount);
+        const methodRow = methods.get(week) ?? { card: 0, cash: 0, pending: 0 };
+        methodRow.pending += item.amount;
+        methods.set(week, methodRow);
+        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, pending: 0 };
+        methodDay.pending += item.amount;
+        methodsByDay.set(day, methodDay);
       }
       const seatKind = remainingBalance(purchase) <= 0.009 ? "sold" : "held";
       const seatDay = purchase.createdAt.slice(0, 10);
@@ -137,7 +158,7 @@ export default function DashboardPage() {
     const dataWeeks = [...cashflow.keys(), ...methods.keys(), ...seatsWeek.keys()].sort();
     const fromWeek = dataWeeks[0] ?? addDays(currentWeek, -7 * 7);
     const cashWeeks = enumerateWeeks(fromWeek, addDays(currentWeek, 7 * 4));
-    const methodWeeks = enumerateWeeks(fromWeek, currentWeek);
+    const methodWeeks = enumerateWeeks(fromWeek, addDays(currentWeek, 7 * 4));
     const cashPoints: BarPoint[] = cashWeeks.map((key) => ({
       id: key,
       label: weekLabel(key),
@@ -152,9 +173,11 @@ export default function DashboardPage() {
       values: {
         card: methods.get(key)?.card ?? 0,
         cash: methods.get(key)?.cash ?? 0,
+        pending: methods.get(key)?.pending ?? 0,
       },
     }));
-    const seatPoints: BarPoint[] = methodWeeks.map((key) => ({
+    const seatWeeks = enumerateWeeks(fromWeek, currentWeek);
+    const seatPoints: BarPoint[] = seatWeeks.map((key) => ({
       id: key,
       label: weekLabel(key),
       values: {
@@ -192,10 +215,11 @@ export default function DashboardPage() {
   const methodSeries: BarSeries[] = [
     { key: "card", label: "Tarjeta", color: "#1C2541" },
     { key: "cash", label: "Efectivo", color: "#9A6B43" },
+    { key: "pending", label: "Pendiente", color: "#DC2626" },
   ];
   const seatSeries: BarSeries[] = [
-    { key: "sold", label: "Vendidos", color: "#DC2626" },
-    { key: "held", label: "Apartados", color: "#D97706" },
+    { key: "sold", label: "Vendidos", color: "#1C2541" },
+    { key: "held", label: "Apartados", color: "#9A6B43" },
   ];
 
   return (
@@ -380,6 +404,7 @@ export default function DashboardPage() {
                           ? {
                               card: metrics.methodsByDay.get(day)?.card ?? 0,
                               cash: metrics.methodsByDay.get(day)?.cash ?? 0,
+                              pending: metrics.methodsByDay.get(day)?.pending ?? 0,
                             }
                           : {
                               sold: metrics.seatsByDay.get(day)?.sold ?? 0,

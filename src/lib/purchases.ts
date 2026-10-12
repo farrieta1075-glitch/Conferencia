@@ -11,6 +11,34 @@ export function remainingBalance(purchase: Purchase): number {
   return roundMoney(Math.max(0, purchase.total - purchase.paid));
 }
 
+export function isNamelessBlock(purchase: Purchase): boolean {
+  if (purchase.cancelled) return false;
+  return purchase.tickets.every((ticket) => !ticket.holderName.trim());
+}
+
+export function releaseNamelessBlock(purchase: Purchase): Purchase {
+  if (!isNamelessBlock(purchase)) {
+    throw new Error("Solo se pueden desbloquear lugares sin nombre");
+  }
+  return {
+    ...purchase,
+    cancelled: true,
+    paid: 0,
+    payments: [
+      ...(purchase.payments ?? []),
+      {
+        id: `pay-release-${Date.now()}`,
+        date: new Date().toISOString(),
+        amount: 0,
+        method: purchase.paymentMethod,
+        cancelled: true,
+        cancelReason: "Desbloqueo de lugar sin nombre",
+        cancelledAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
 export function syncInstallmentsToPaid(purchase: Purchase): Purchase {
   let credit = roundMoney(purchase.paid);
   const installments = purchase.installments.map((item) => {

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import { formatDate, money, parseSeatId } from "@/lib/format";
-import { purchaseSeatStatus, remainingBalance } from "@/lib/purchases";
+import { isNamelessBlock, purchaseSeatStatus, remainingBalance } from "@/lib/purchases";
 import type { Purchase } from "@/lib/types";
 
 export interface SeatPurchasePeekState {
@@ -19,17 +19,21 @@ function seatLabel(seatId: string) {
 export function SeatPurchasePeek({
   peek,
   onClose,
+  canRelease = false,
+  onRelease,
 }: {
   peek: SeatPurchasePeekState;
   onClose: () => void;
+  canRelease?: boolean;
+  onRelease?: () => Promise<void> | void;
 }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const status = purchaseSeatStatus(peek.purchase);
   const pending = remainingBalance(peek.purchase);
   const names = useMemo(() => {
     const unique = [...new Set(peek.purchase.tickets.map((ticket) => ticket.holderName.trim()).filter(Boolean))];
-    return unique.length ? unique : ["Sin nombre"];
-  }, [peek.purchase.tickets]);
+    return unique.length ? unique : [isNamelessBlock(peek.purchase) ? "Bloqueo sin nombre" : "Sin nombre"];
+  }, [peek.purchase]);
   const upcoming = peek.purchase.installments.filter((item) => !item.paid);
   const style = useMemo(() => {
     const width = Math.min(276, window.innerWidth - 24);
@@ -75,7 +79,7 @@ export function SeatPurchasePeek({
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-[10px] uppercase tracking-wider text-bronze-dark">
-            {status === "sold" ? "Vendido" : "Apartado"}
+            {isNamelessBlock(peek.purchase) ? "Bloqueado" : status === "sold" ? "Vendido" : "Apartado"}
           </p>
           <p className="font-display text-lg leading-tight">{names.join(", ")}</p>
         </div>
@@ -125,6 +129,15 @@ export function SeatPurchasePeek({
             <p className="mt-1 text-sm text-ink-muted">No hay fechas pendientes.</p>
           )}
         </div>
+      ) : null}
+      {canRelease && onRelease ? (
+        <button
+          type="button"
+          className="btn-secondary mt-3 w-full"
+          onClick={() => void onRelease()}
+        >
+          Desbloquear lugares
+        </button>
       ) : null}
     </div>
   );

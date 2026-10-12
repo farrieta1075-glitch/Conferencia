@@ -14,7 +14,7 @@ import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
 import { persistsToSheets } from "@/lib/auth/roles";
 import { useCampus } from "@/context/CampusContext";
-import { AREA_ORDER, DEFAULT_PRICES, STORAGE_KEY } from "@/lib/constants";
+import { AREA_ORDER, DEFAULT_PRICES, NO_EMAIL, NO_PHONE, STORAGE_KEY } from "@/lib/constants";
 import { buildInstallmentPlans } from "@/lib/installments";
 import { notificationHooks } from "@/lib/notifications";
 import { priceForSeat } from "@/lib/pricing";
@@ -23,6 +23,7 @@ import {
   applyPurchasePayment,
   voidPurchasePayment,
   purchaseSeatStatus,
+  releaseNamelessBlock,
   type PurchasePatch,
 } from "@/lib/purchases";
 import {
@@ -57,6 +58,7 @@ export interface BuyPayload {
   selectedPlan?: InstallmentCount;
   remindWhatsApp: boolean;
   remindEmail: boolean;
+  block?: boolean;
 }
 
 type Action =
@@ -71,6 +73,7 @@ type Action =
   | { type: "updatePurchase"; id: string; patch: PurchasePatch }
   | { type: "applyPayment"; id: string; amount: number; settleAll?: boolean }
   | { type: "voidPayment"; id: string; paymentId: string; reason: string }
+  | { type: "releaseBlock"; id: string }
   | { type: "setSeatStatus"; seatStatus: Record<string, SeatStatus> }
   | { type: "resetVenue" };
 
@@ -138,8 +141,9 @@ export async function buildPurchase(
   });
 
   const total = tickets.reduce((sum, ticket) => sum + ticket.price, 0);
-  const isPartial = payload.paymentMode === "partial";
-  const deposit = isPartial ? Math.min(payload.deposit, total) : total;
+  const isBlock = Boolean(payload.block);
+  const isPartial = !isBlock && payload.paymentMode === "partial";
+  const deposit = isBlock ? 0 : isPartial ? Math.min(payload.deposit, total) : total;
 
   const purchase: Purchase = {
     id: `buy-${Date.now()}`,
@@ -156,7 +160,7 @@ export async function buildPurchase(
           ]
         : [],
     customer: { phone: payload.phone, email: payload.email },
-    paymentMode: payload.paymentMode,
+    paymentMode: isBlock ? "total" : payload.paymentMode,
     paymentMethod: payload.paymentMethod,
     tickets,
     deposit,
@@ -280,6 +284,13 @@ function reducer(state: PersistedState, action: Action): PersistedState {
       const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
       return applySeatStatuses({ ...state, purchases }, updated);
     }
+    case "releaseBlock": {
+      const current = state.purchases.find((item) => item.id === action.id);
+      if (!current) return state;
+      const updated = releaseNamelessBlock(current);
+      const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
+      return applySeatStatuses({ ...state, purchases }, updated);
+    }
     case "setSeatStatus":
       return { ...state, seatStatus: action.seatStatus };
     case "resetVenue":
@@ -398,6 +409,8 @@ interface StoreValue {
   updatePurchase: (id: string, patch: PurchasePatch) => Promise<void>;
   applyPayment: (id: string, amount: number, settleAll?: boolean) => Promise<void>;
   voidPayment: (id: string, paymentId: string, reason: string) => Promise<void>;
+  blockSeats: (seatIds: string[]) => Promise<Purchase>;
+  releaseBlock: (id: string) => Promise<void>;
   saveSeatAssignments: (seatStatus: Record<string, SeatStatus>) => Promise<void>;
   resetVenue: () => Promise<void>;
   reloadFromSheets: () => Promise<void>;
@@ -677,6 +690,45 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         if (!current) throw new Error("Compra no encontrada");
         const updated = voidPurchasePayment(current, paymentId, reason);
         dispatch({ type: "voidPayment", id, paymentId, reason });
+        const seatPatch: Record<string, SeatStatus> = {};
+        const status = purchaseSeatStatus(updated);
+        for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
+        queueSheets({ purchases: true, seatPatch });
+      },
+      blockSeats: async (seatIds) => {
+        const foreign = new Set(state.foreignSeats ?? []);
+        if (seatIds.some((id) => foreign.has(id))) {
+          throw new Error("Uno o más asientos ya están asignados a otro campus");
+        }
+        const purchase = {
+          ...(await buildPurchase(state, {
+            seatIds,
+            holderNames: seatIds.map(() => ""),
+            phone: NO_PHONE,
+            email: NO_EMAIL,
+            paymentMode: "total",
+            paymentMethod: "cash",
+            deposit: 0,
+            remindWhatsApp: false,
+            remindEmail: false,
+            block: true,
+          })),
+          campus: campusRef.current,
+        };
+        await apiFetch("/api/purchases", { method: "POST", body: JSON.stringify(purchase) });
+        dispatch({ type: "buy", purchase });
+        const status = purchaseSeatStatus(purchase);
+        queueSheets({
+          purchases: true,
+          seatPatch: Object.fromEntries(purchase.tickets.map((ticket) => [ticket.seatId, status])),
+        });
+        return purchase;
+      },
+      releaseBlock: async (id) => {
+        const current = state.purchases.find((item) => item.id === id);
+        if (!current) throw new Error("Bloqueo no encontrado");
+        const updated = releaseNamelessBlock(current);
+        dispatch({ type: "releaseBlock", id });
         const seatPatch: Record<string, SeatStatus> = {};
         const status = purchaseSeatStatus(updated);
         for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
