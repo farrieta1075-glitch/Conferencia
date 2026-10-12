@@ -11,7 +11,7 @@ export function Nav() {
   const links = navLinksForRole(role);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-navy-mid pb-[env(safe-area-inset-bottom)] lg:static lg:border-t-0 lg:border-r lg:pb-0">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-navy-mid pb-[env(safe-area-inset-bottom)] lg:static lg:h-full lg:shrink-0 lg:overflow-y-auto lg:border-t-0 lg:border-r lg:pb-0">
       <ul className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-2 py-1.5 lg:w-56 lg:flex-col lg:px-3 lg:py-6 max-[1100px]:landscape:py-1">
         {links.map((link) => {
           const active =

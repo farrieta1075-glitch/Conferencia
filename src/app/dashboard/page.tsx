@@ -6,21 +6,10 @@ import { RoleGate } from "@/components/auth/RoleGate";
 import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
 import { formatDate, money } from "@/lib/format";
+import { activePayments } from "@/lib/purchases";
 import { flattenSeats } from "@/lib/tabulador/generator";
 import { priceForSeat } from "@/lib/pricing";
-
-function weekKey(iso: string) {
-  const date = new Date(iso);
-  const day = (date.getDay() + 6) % 7;
-  date.setDate(date.getDate() - day);
-  date.setHours(12, 0, 0, 0);
-  return date.toISOString().slice(0, 10);
-}
-
-function weekLabel(key: string) {
-  const date = new Date(`${key}T12:00:00`);
-  return new Intl.DateTimeFormat("es-MX", { day: "2-digit", month: "short" }).format(date);
-}
+import { addDays, dayLabel, enumerateWeeks, weekLabel, weekStart } from "@/lib/weeks";
 
 function monthKey(iso: string) {
   return iso.slice(0, 7);
@@ -36,6 +25,7 @@ export default function DashboardPage() {
   const { state, statusOf } = useEventStore();
   const { campus } = useCampus();
   const [open, setOpen] = useState<"cashflow" | "methods" | null>(null);
+  const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
   const [cobrosOpen, setCobrosOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
 
@@ -52,15 +42,16 @@ export default function DashboardPage() {
       goalMoney += priceForSeat(seat, state.prices, state.promotions).price;
     }
 
-    const cobrado = state.purchases.reduce((sum, purchase) => sum + purchase.paid, 0);
-    const pendiente = state.purchases.reduce(
+    const livePurchases = state.purchases.filter((purchase) => !purchase.cancelled);
+    const cobrado = livePurchases.reduce((sum, purchase) => sum + purchase.paid, 0);
+    const pendiente = livePurchases.reduce(
       (sum, purchase) => sum + Math.max(0, purchase.total - purchase.paid),
       0,
     );
     const committedSeats = counts.held + counts.sold;
 
     const byPromo = new Map<string, { tickets: number; amount: number }>();
-    for (const purchase of state.purchases) {
+    for (const purchase of livePurchases) {
       for (const ticket of purchase.tickets) {
         const key = ticket.promotionName ?? "Sin promoción";
         const current = byPromo.get(key) ?? { tickets: 0, amount: 0 };
@@ -70,7 +61,7 @@ export default function DashboardPage() {
       }
     }
 
-    const upcoming = state.purchases
+    const upcoming = livePurchases
       .flatMap((purchase) =>
         purchase.installments
           .filter((item) => !item.paid)
@@ -95,26 +86,44 @@ export default function DashboardPage() {
 
     const cashflow = new Map<string, { received: number; pending: number }>();
     const methods = new Map<string, { card: number; cash: number }>();
-    for (const purchase of state.purchases) {
-      for (const payment of purchase.payments ?? []) {
-        const key = weekKey(payment.date);
-        const row = cashflow.get(key) ?? { received: 0, pending: 0 };
-        row.received += payment.amount;
-        cashflow.set(key, row);
+    const cashByDay = new Map<string, { received: number; pending: number }>();
+    const methodsByDay = new Map<string, { card: number; cash: number }>();
+    const bump = (
+      map: Map<string, { received: number; pending: number }>,
+      key: string,
+      field: "received" | "pending",
+      amount: number,
+    ) => {
+      const row = map.get(key) ?? { received: 0, pending: 0 };
+      row[field] += amount;
+      map.set(key, row);
+    };
+    for (const purchase of livePurchases) {
+      for (const payment of activePayments(purchase)) {
+        const day = payment.date.slice(0, 10);
+        const key = weekStart(payment.date);
+        bump(cashflow, key, "received", payment.amount);
+        bump(cashByDay, day, "received", payment.amount);
         const methodRow = methods.get(key) ?? { card: 0, cash: 0 };
         methodRow[purchase.paymentMethod] += payment.amount;
         methods.set(key, methodRow);
+        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0 };
+        methodDay[purchase.paymentMethod] += payment.amount;
+        methodsByDay.set(day, methodDay);
       }
       for (const item of purchase.installments.filter((entry) => !entry.paid)) {
-        const key = weekKey(item.date);
-        const row = cashflow.get(key) ?? { received: 0, pending: 0 };
-        row.pending += item.amount;
-        cashflow.set(key, row);
+        const day = item.date.slice(0, 10);
+        bump(cashflow, weekStart(item.date), "pending", item.amount);
+        bump(cashByDay, day, "pending", item.amount);
       }
     }
 
-    const weeks = [...new Set([...cashflow.keys(), ...methods.keys()])].sort().slice(-10);
+    const currentWeek = weekStart(new Date().toISOString());
+    const dataWeeks = [...cashflow.keys(), ...methods.keys()].sort();
+    const fromWeek = dataWeeks[0] ?? addDays(currentWeek, -7 * 7);
+    const weeks = enumerateWeeks(fromWeek, currentWeek);
     const cashPoints: BarPoint[] = weeks.map((key) => ({
+      id: key,
       label: weekLabel(key),
       values: {
         received: cashflow.get(key)?.received ?? 0,
@@ -122,12 +131,15 @@ export default function DashboardPage() {
       },
     }));
     const methodPoints: BarPoint[] = weeks.map((key) => ({
+      id: key,
       label: weekLabel(key),
       values: {
         card: methods.get(key)?.card ?? 0,
         cash: methods.get(key)?.cash ?? 0,
       },
     }));
+    const daysOf = (week: string) =>
+      Array.from({ length: 7 }, (_, index) => addDays(week, index));
 
     return {
       counts,
@@ -137,6 +149,9 @@ export default function DashboardPage() {
       byMonth,
       cashPoints,
       methodPoints,
+      cashByDay,
+      methodsByDay,
+      daysOf,
       goalMoney,
       goalSeats,
       committedSeats,
@@ -157,7 +172,6 @@ export default function DashboardPage() {
     <div className="space-y-4">
       <div>
         <p className="text-[10px] uppercase tracking-wider text-bronze-dark">Dashboard e indicadores</p>
-        <h2 className="font-display text-3xl text-ink">Avance de venta</h2>
         <p className="text-sm text-ink-muted">Campus {campus}</p>
       </div>
 
@@ -176,19 +190,74 @@ export default function DashboardPage() {
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2">
-        <button type="button" className="card p-4 text-left" onClick={() => setOpen("cashflow")}>
-          <p className="text-sm font-semibold">Recibido vs pendiente / semana</p>
-          <div className="mt-2 h-24">
-            <MiniBarChart series={cashSeries} points={metrics.cashPoints} />
+        <article className="card p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Recibido vs pendiente / semana</p>
+            <button type="button" className="text-xs font-semibold text-bronze-dark" onClick={() => setOpen("cashflow")}>
+              Ampliar
+            </button>
           </div>
-        </button>
-        <button type="button" className="card p-4 text-left" onClick={() => setOpen("methods")}>
-          <p className="text-sm font-semibold">Formas de pago / semana</p>
-          <div className="mt-2 h-24">
-            <MiniBarChart series={methodSeries} points={metrics.methodPoints} />
+          <div className="mt-2 h-24 overflow-x-auto">
+            <MiniBarChart
+              series={cashSeries}
+              points={metrics.cashPoints}
+              selectedId={expandedWeek}
+              onSelect={(id) => setExpandedWeek((current) => (current === id ? null : id))}
+            />
           </div>
-        </button>
+        </article>
+        <article className="card p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold">Formas de pago / semana</p>
+            <button type="button" className="text-xs font-semibold text-bronze-dark" onClick={() => setOpen("methods")}>
+              Ampliar
+            </button>
+          </div>
+          <div className="mt-2 h-24 overflow-x-auto">
+            <MiniBarChart
+              series={methodSeries}
+              points={metrics.methodPoints}
+              selectedId={expandedWeek}
+              onSelect={(id) => setExpandedWeek((current) => (current === id ? null : id))}
+            />
+          </div>
+        </article>
       </section>
+      {expandedWeek ? (
+        <section className="card p-4">
+          <p className="text-sm font-semibold">
+            {weekLabel(expandedWeek)} por día · toca la semana otra vez para contraer
+          </p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <div className="h-28">
+              <MiniBarChart
+                series={cashSeries}
+                points={metrics.daysOf(expandedWeek).map((day) => ({
+                  id: day,
+                  label: dayLabel(day),
+                  values: {
+                    received: metrics.cashByDay.get(day)?.received ?? 0,
+                    pending: metrics.cashByDay.get(day)?.pending ?? 0,
+                  },
+                }))}
+              />
+            </div>
+            <div className="h-28">
+              <MiniBarChart
+                series={methodSeries}
+                points={metrics.daysOf(expandedWeek).map((day) => ({
+                  id: day,
+                  label: dayLabel(day),
+                  values: {
+                    card: metrics.methodsByDay.get(day)?.card ?? 0,
+                    cash: metrics.methodsByDay.get(day)?.cash ?? 0,
+                  },
+                }))}
+              />
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Vendidos" value={metrics.counts.sold} color="text-sold" />
@@ -281,8 +350,34 @@ export default function DashboardPage() {
                 series={open === "cashflow" ? cashSeries : methodSeries}
                 points={open === "cashflow" ? metrics.cashPoints : metrics.methodPoints}
                 height={240}
+                selectedId={expandedWeek}
+                onSelect={(id) => setExpandedWeek((current) => (current === id ? null : id))}
               />
             </div>
+            {expandedWeek ? (
+              <div className="mt-4 h-48">
+                <p className="mb-2 text-sm font-semibold">{weekLabel(expandedWeek)} por día</p>
+                <MiniBarChart
+                  series={open === "cashflow" ? cashSeries : methodSeries}
+                  points={metrics.daysOf(expandedWeek).map((day) => {
+                    const values: Record<string, number> =
+                      open === "cashflow"
+                        ? {
+                            received: metrics.cashByDay.get(day)?.received ?? 0,
+                            pending: metrics.cashByDay.get(day)?.pending ?? 0,
+                          }
+                        : {
+                            card: metrics.methodsByDay.get(day)?.card ?? 0,
+                            cash: metrics.methodsByDay.get(day)?.cash ?? 0,
+                          };
+                    return { id: day, label: dayLabel(day), values };
+                  })}
+                  height={180}
+                />
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-ink-muted">Toca una semana para verla por día.</p>
+            )}
             <ul className="mt-3 flex flex-wrap gap-3 text-sm">
               {(open === "cashflow" ? cashSeries : methodSeries).map((item) => (
                 <li key={item.key} className="flex items-center gap-2">

@@ -133,6 +133,9 @@ function purchaseSheets(purchases: Purchase[]) {
         item.date,
         item.amount,
         item.method,
+        item.cancelled ? "si" : "no",
+        item.cancelReason ?? "",
+        item.cancelledAt ?? "",
       ]),
     ),
   };
@@ -269,7 +272,7 @@ export async function applySheetsDelta(delta: SheetsDelta) {
     await mergeCampusTab(
       spreadsheetId,
       "Pagos",
-      ["compra_id", "pago_id", "fecha", "monto", "metodo", "campus"],
+      ["compra_id", "pago_id", "fecha", "monto", "metodo", "cancelado", "motivo", "fecha_cancelacion", "campus"],
       campus,
       sheets.pagos,
     );

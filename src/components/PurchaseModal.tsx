@@ -6,6 +6,7 @@ import { formatDate, money } from "@/lib/format";
 import { buildInstallmentPlans } from "@/lib/installments";
 import { whatsAppPreviewUrl } from "@/lib/notifications";
 import { priceForSeat } from "@/lib/pricing";
+import { NO_EMAIL } from "@/lib/constants";
 import type { InstallmentCount, PaymentMethod, PaymentMode, SeatRef } from "@/lib/types";
 
 interface PurchaseModalProps {
@@ -22,6 +23,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
   const [names, setNames] = useState<string[]>(() => seats.map(() => ""));
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [withEmail, setWithEmail] = useState(true);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>("total");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("card");
   const [deposit, setDeposit] = useState(0);
@@ -35,6 +37,7 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
     setNames(Array.from({ length: seats.length }, () => ""));
     setPhone("");
     setEmail("");
+    setWithEmail(true);
     setDeposit(0);
     setError("");
   }, [open, seatKey, seats.length]);
@@ -69,8 +72,12 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
       setError("Captura el nombre del titular de cada boleto.");
       return;
     }
-    if (!phone.trim() || !email.trim()) {
-      setError("Teléfono y correo son obligatorios.");
+    if (!phone.trim()) {
+      setError("El teléfono es obligatorio.");
+      return;
+    }
+    if (withEmail && !email.trim()) {
+      setError("Captura el correo o desactívalo.");
       return;
     }
     if (paymentMode === "partial") {
@@ -89,13 +96,13 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
         seatIds: seats.map((seat) => seat.id),
         holderNames,
         phone: phone.trim(),
-        email: email.trim(),
+        email: withEmail ? email.trim() : NO_EMAIL,
         paymentMode,
         paymentMethod,
         deposit: paymentMode === "partial" ? deposit : total,
         selectedPlan: paymentMode === "partial" ? plan : undefined,
         remindWhatsApp: paymentMode === "partial" && remindWhatsApp,
-        remindEmail: paymentMode === "partial" && remindEmail,
+        remindEmail: paymentMode === "partial" && withEmail && remindEmail,
       });
       setNames(Array.from({ length: seats.length }, () => ""));
       setPhone("");
@@ -171,15 +178,33 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
             Teléfono
             <input className="field mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </label>
-          <label className="text-sm font-medium text-ink-muted">
-            Correo electrónico
-            <input
-              className="field mt-1"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </label>
+          <div>
+            <label className="mb-2 flex min-h-12 items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                className="h-5 w-5"
+                checked={withEmail}
+                onChange={(event) => {
+                  setWithEmail(event.target.checked);
+                  if (!event.target.checked) setEmail("");
+                }}
+              />
+              El cliente proporciona correo
+            </label>
+            {withEmail ? (
+              <label className="text-sm font-medium text-ink-muted">
+                Correo electrónico
+                <input
+                  className="field mt-1"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </label>
+            ) : (
+              <p className="text-sm text-ink-muted">Se registrará como {NO_EMAIL}.</p>
+            )}
+          </div>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -266,15 +291,17 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
                 />
                 Programar recordatorios por WhatsApp (simulado)
               </label>
-              <label className="flex min-h-12 items-center gap-2">
-                <input
-                  type="checkbox"
-                  className="h-5 w-5"
-                  checked={remindEmail}
-                  onChange={(e) => setRemindEmail(e.target.checked)}
-                />
-                Programar recordatorios por correo (simulado)
-              </label>
+              {withEmail ? (
+                <label className="flex min-h-12 items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5"
+                    checked={remindEmail}
+                    onChange={(e) => setRemindEmail(e.target.checked)}
+                  />
+                  Programar recordatorios por correo (simulado)
+                </label>
+              ) : null}
               {phone && (
                 <a
                   className="text-bronze-dark underline"

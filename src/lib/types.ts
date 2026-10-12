@@ -90,6 +90,9 @@ export interface PaymentRecord {
   date: string;
   amount: number;
   method: PaymentMethod;
+  cancelled?: boolean;
+  cancelReason?: string;
+  cancelledAt?: string;
 }
 
 export interface ReminderJob {
@@ -125,6 +128,7 @@ export interface Purchase {
   deposit: number;
   total: number;
   paid: number;
+  cancelled?: boolean;
   selectedPlan?: InstallmentCount;
   installments: Installment[];
   payments?: PaymentRecord[];

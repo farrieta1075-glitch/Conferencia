@@ -2,6 +2,8 @@ import type { AreaId } from "./types";
 
 export const STORAGE_KEY = "auditorio-nacional-boletos-v8";
 
+export const NO_EMAIL = "sin correo";
+
 export const COLORS = {
   navy: "#0B132B",
   navyMid: "#1C2541",

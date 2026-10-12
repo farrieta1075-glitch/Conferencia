@@ -169,6 +169,9 @@ function buildPurchases(
         date: item[2],
         amount: Number(item[3]) || 0,
         method: item[4] === "cash" ? "cash" : "card",
+        cancelled: String(item[5] ?? "").toLowerCase() === "si",
+        cancelReason: item[6] || undefined,
+        cancelledAt: item[7] || undefined,
       }));
     const paymentsForPurchase =
       logged.length > 0
@@ -212,6 +215,7 @@ function buildPurchases(
           paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
         })),
       payments: paymentsForPurchase,
+      cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
       reminders: [],
     });
   }
@@ -246,7 +250,7 @@ export async function loadStateFromSheets(
     "Ventas!A1:K",
     "Boletos!A1:G",
     "Parcialidades!A1:F",
-    "Pagos!A1:F",
+    "Pagos!A1:I",
   ]);
 
   const eventoRows = filterCampusRows(evento, 4, campus);
@@ -319,7 +323,7 @@ export async function loadStateFromSheets(
       ventasCampus,
       filterCampusRows(boletos, 6, campus),
       filterCampusRows(parcialidades, 5, campus),
-      filterCampusRows(pagos, 5, campus),
+      filterCampusRows(pagos, 8, campus),
       campus,
     ),
   };

@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { RoleGate } from "@/components/auth/RoleGate";
+import { RoleGate, useCurrentRole } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
+import { NO_EMAIL } from "@/lib/constants";
 import { formatDate, money, parseSeatId } from "@/lib/format";
 import { remainingBalance, type PurchasePatch } from "@/lib/purchases";
 import type { Purchase } from "@/lib/types";
 
 function firstHolder(purchase: Purchase) {
-  return purchase.tickets[0]?.holderName?.trim() || purchase.customer.email;
+  return purchase.tickets[0]?.holderName?.trim() || (purchase.customer.email === NO_EMAIL ? "" : purchase.customer.email);
 }
 
 function seatSummary(purchase: Purchase) {
@@ -22,32 +23,41 @@ function seatSummary(purchase: Purchase) {
 }
 
 export default function BoletosAdminPage() {
-  const { state, seatIndex, updatePurchase, applyPayment } = useEventStore();
+  const { state, seatIndex, updatePurchase, applyPayment, voidPayment } = useEventStore();
+  const role = useCurrentRole();
+  const canVoid = role === "ADMIN";
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "held" | "sold">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PurchasePatch>({});
   const [amount, setAmount] = useState(0);
+  const [cancelId, setCancelId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [withEmail, setWithEmail] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const selected = state.purchases.find((item) => item.id === selectedId) ?? null;
+  const selected = state.purchases.find((item) => item.id === selectedId && !item.cancelled) ?? null;
 
   useEffect(() => {
     if (!selected) {
       setDraft({});
       return;
     }
+    const hasEmail = Boolean(selected.customer.email) && selected.customer.email.trim().toLowerCase() !== NO_EMAIL;
+    setWithEmail(hasEmail);
     setDraft({
       phone: selected.customer.phone,
-      email: selected.customer.email,
+      email: hasEmail ? selected.customer.email : "",
       tickets: selected.tickets.map((ticket) => ({
         id: ticket.id,
         holderName: ticket.holderName,
       })),
     });
     setAmount(0);
+    setCancelId(null);
+    setCancelReason("");
     setError("");
     setMessage("");
   }, [selectedId, selected]);
@@ -55,6 +65,7 @@ export default function BoletosAdminPage() {
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return state.purchases.filter((purchase) => {
+      if (purchase.cancelled) return false;
       const remaining = remainingBalance(purchase);
       const kind = remaining <= 0 ? "sold" : "held";
       if (filter !== "all" && filter !== kind) return false;
@@ -80,7 +91,10 @@ export default function BoletosAdminPage() {
     setError("");
     setMessage("");
     try {
-      await updatePurchase(selected.id, draft);
+      await updatePurchase(selected.id, {
+        ...draft,
+        email: withEmail ? (draft.email ?? "").trim() : NO_EMAIL,
+      });
       setMessage("Datos del boleto actualizados.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar");
@@ -109,7 +123,7 @@ export default function BoletosAdminPage() {
     <div className="space-y-4">
       <div>
         <p className="text-[10px] uppercase tracking-wider text-bronze-dark">Boletos</p>
-        <h2 className="font-display text-3xl">Vendidos y apartados</h2>
+        <h2 className="font-display text-3xl">Boletos</h2>
         <p className="mt-2 text-sm text-ink-muted">
           Edita titular y contacto, o completa pagos parciales y totales. Un apartado pasa a
           vendido cuando el saldo llega a cero.
@@ -211,14 +225,37 @@ export default function BoletosAdminPage() {
                     onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
                   />
                 </label>
-                <label className="text-sm font-medium text-ink-muted">
-                  Correo
+              <div>
+                <label className="mb-2 flex min-h-11 items-center gap-2 text-sm">
                   <input
-                    className="field mt-1"
-                    value={draft.email ?? ""}
-                    onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
+                    type="checkbox"
+                    className="h-5 w-5"
+                    checked={withEmail}
+                    onChange={(event) => {
+                      setWithEmail(event.target.checked);
+                      if (!event.target.checked) {
+                        setDraft((current) => ({ ...current, email: NO_EMAIL }));
+                      } else if ((draft.email ?? "").toLowerCase() === NO_EMAIL) {
+                        setDraft((current) => ({ ...current, email: "" }));
+                      }
+                    }}
                   />
+                  El cliente proporciona correo
                 </label>
+                {withEmail ? (
+                  <label className="text-sm font-medium text-ink-muted">
+                    Correo
+                    <input
+                      className="field mt-1"
+                      type="email"
+                      value={draft.email === NO_EMAIL ? "" : (draft.email ?? "")}
+                      onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
+                    />
+                  </label>
+                ) : (
+                  <p className="text-sm text-ink-muted">Se guardará como {NO_EMAIL}.</p>
+                )}
+              </div>
               </div>
               <ul className="space-y-2">
                 {selected.tickets.map((ticket, index) => {
@@ -276,6 +313,15 @@ export default function BoletosAdminPage() {
                         <td className="py-1">{formatDate(item.date)}</td>
                         <td>{money(item.amount)}</td>
                         <td>{item.method === "card" ? "Tarjeta" : "Efectivo"}</td>
+                        <td>
+                          {item.cancelled ? (
+                            <span className="text-xs text-sold">
+                              Cancelado{item.cancelReason ? `: ${item.cancelReason}` : ""}
+                            </span>
+                          ) : (
+                            "Vigente"
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -325,9 +371,87 @@ export default function BoletosAdminPage() {
                     >
                       Liquidar saldo
                     </button>
+                    {canVoid && (selected.payments ?? []).some((item) => !item.cancelled) ? (
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={busy}
+                        onClick={() => setCancelId((selected.payments ?? []).find((item) => !item.cancelled)?.id ?? null)}
+                      >
+                        Cancelar pago
+                      </button>
+                    ) : null}
                   </div>
                 )}
               </RoleGate>
+              {canVoid && (selected.payments ?? []).some((item) => !item.cancelled) && remainingBalance(selected) <= 0 ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    disabled={busy}
+                    onClick={() => setCancelId((selected.payments ?? []).find((item) => !item.cancelled)?.id ?? null)}
+                  >
+                    Cancelar pago
+                  </button>
+                </div>
+              ) : null}
+              {canVoid && cancelId ? (
+                <div className="mt-3 space-y-2 rounded-xl bg-white p-3">
+                  <p className="text-sm font-medium">Selecciona el pago a cancelar</p>
+                  <select
+                    className="field"
+                    value={cancelId}
+                    onChange={(event) => setCancelId(event.target.value)}
+                  >
+                    {(selected.payments ?? [])
+                      .filter((item) => !item.cancelled)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {formatDate(item.date)} · {money(item.amount)}
+                        </option>
+                      ))}
+                  </select>
+                  <label className="text-sm font-medium text-ink-muted">
+                    Razón de la cancelación
+                    <textarea
+                      className="field mt-1 min-h-20"
+                      value={cancelReason}
+                      onChange={(event) => setCancelReason(event.target.value)}
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={busy}
+                      onClick={() => {
+                        void (async () => {
+                          if (!selected || !cancelId) return;
+                          setBusy(true);
+                          setError("");
+                          setMessage("");
+                          try {
+                            await voidPayment(selected.id, cancelId, cancelReason);
+                            setCancelId(null);
+                            setCancelReason("");
+                            setMessage("Pago cancelado.");
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "No se pudo cancelar el pago");
+                          } finally {
+                            setBusy(false);
+                          }
+                        })();
+                      }}
+                    >
+                      Confirmar cancelación
+                    </button>
+                    <button type="button" className="btn-ghost" onClick={() => setCancelId(null)}>
+                      Cerrar
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
             {message && <p className="text-sm text-available">{message}</p>}
             {error && <p className="text-sm text-sold">{error}</p>}

@@ -21,6 +21,7 @@ import { priceForSeat } from "@/lib/pricing";
 import {
   applyPurchasePatch,
   applyPurchasePayment,
+  voidPurchasePayment,
   purchaseSeatStatus,
   type PurchasePatch,
 } from "@/lib/purchases";
@@ -69,6 +70,7 @@ type Action =
   | { type: "buy"; purchase: Purchase }
   | { type: "updatePurchase"; id: string; patch: PurchasePatch }
   | { type: "applyPayment"; id: string; amount: number; settleAll?: boolean }
+  | { type: "voidPayment"; id: string; paymentId: string; reason: string }
   | { type: "setSeatStatus"; seatStatus: Record<string, SeatStatus> }
   | { type: "resetVenue" };
 
@@ -268,6 +270,13 @@ function reducer(state: PersistedState, action: Action): PersistedState {
       const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
       return applySeatStatuses({ ...state, purchases }, updated);
     }
+    case "voidPayment": {
+      const current = state.purchases.find((item) => item.id === action.id);
+      if (!current) return state;
+      const updated = voidPurchasePayment(current, action.paymentId, action.reason);
+      const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
+      return applySeatStatuses({ ...state, purchases }, updated);
+    }
     case "setSeatStatus":
       return { ...state, seatStatus: action.seatStatus };
     case "resetVenue":
@@ -385,6 +394,7 @@ interface StoreValue {
   buy: (payload: BuyPayload) => Promise<Purchase>;
   updatePurchase: (id: string, patch: PurchasePatch) => Promise<void>;
   applyPayment: (id: string, amount: number, settleAll?: boolean) => Promise<void>;
+  voidPayment: (id: string, paymentId: string, reason: string) => Promise<void>;
   saveSeatAssignments: (seatStatus: Record<string, SeatStatus>) => Promise<void>;
   resetVenue: () => Promise<void>;
   reloadFromSheets: () => Promise<void>;
@@ -653,6 +663,16 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           method: "POST",
           body: JSON.stringify({ amount, settleAll }),
         });
+      },
+      voidPayment: async (id, paymentId, reason) => {
+        const current = state.purchases.find((item) => item.id === id);
+        if (!current) throw new Error("Compra no encontrada");
+        const updated = voidPurchasePayment(current, paymentId, reason);
+        dispatch({ type: "voidPayment", id, paymentId, reason });
+        const seatPatch: Record<string, SeatStatus> = {};
+        const status = purchaseSeatStatus(updated);
+        for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
+        queueSheets({ purchases: true, seatPatch });
       },
       saveSeatAssignments: async (seatStatus) => {
         const next: Record<string, SeatStatus> = {};
