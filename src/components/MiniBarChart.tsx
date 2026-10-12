@@ -12,8 +12,11 @@ export interface BarPoint {
   values: Record<string, number>;
 }
 
-function formatK(value: number): string {
+export type BarFormat = "k" | "count";
+
+function formatBarValue(value: number, format: BarFormat): string {
   if (value < 0.05) return "";
+  if (format === "count") return String(Math.round(value));
   return `${(value / 1000).toFixed(1)}K`;
 }
 
@@ -22,6 +25,7 @@ export function MiniBarChart({
   points,
   height = 160,
   stacked = false,
+  format = "k",
   selectedId,
   onSelect,
 }: {
@@ -29,6 +33,7 @@ export function MiniBarChart({
   points: BarPoint[];
   height?: number;
   stacked?: boolean;
+  format?: BarFormat;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
 }) {
@@ -69,6 +74,7 @@ export function MiniBarChart({
                 values={point.values}
                 total={total}
                 selected={selected}
+                format={format}
               />
             ) : (
               series.map((item, sIndex) => {
@@ -114,6 +120,7 @@ function StackedBar({
   values,
   total,
   selected,
+  format,
 }: {
   x: number;
   barW: number;
@@ -124,11 +131,12 @@ function StackedBar({
   values: Record<string, number>;
   total: number;
   selected: boolean;
+  format: BarFormat;
 }) {
   const bottom = height - 16;
   let y = bottom;
   const totalH = (total / max) * usable;
-  const totalLabel = formatK(total);
+  const totalLabel = formatBarValue(total, format);
 
   return (
     <>
@@ -139,7 +147,7 @@ function StackedBar({
         const value = values[item.key] ?? 0;
         const h = (value / max) * usable;
         y -= h;
-        const label = formatK(value);
+        const label = formatBarValue(value, format);
         const fits = h >= 12 && barW >= 28;
         const midY = y + h / 2 + 3;
         return (

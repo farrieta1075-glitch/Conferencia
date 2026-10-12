@@ -20,6 +20,7 @@ export const COLORS = {
   held: "#D97706",
   sold: "#DC2626",
   unassigned: "#CBD5E1",
+  foreign: "#94A3B8",
 } as const;
 
 export const AREA_ORDER: AreaId[] = [

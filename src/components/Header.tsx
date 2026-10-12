@@ -87,24 +87,6 @@ export function Header({ compact = false }: { compact?: boolean }) {
 
         {compact ? (
           <>
-            {canSwitch ? (
-              <select
-                className="min-h-9 shrink-0 rounded-2xl bg-navy-mid px-2 text-xs text-white"
-                value={campus}
-                onChange={(event) => setCampus(event.target.value as typeof campus)}
-                aria-label="Campus"
-              >
-                {CAMPUS_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <span className="hidden rounded-2xl bg-navy-mid px-2 py-1 text-[10px] font-semibold text-white sm:inline">
-                {campus}
-              </span>
-            )}
             <div className="flex min-h-9 shrink-0 items-center rounded-2xl bg-bronze px-2.5 py-1 text-white sm:min-h-10 sm:px-3 sm:py-1.5">
               <div>
                 <p className="text-[10px] uppercase tracking-wider text-white/80">
@@ -154,7 +136,7 @@ export function Header({ compact = false }: { compact?: boolean }) {
         )}
         {session?.user && (
           <div className={`flex shrink-0 items-center gap-2 rounded-2xl bg-navy-mid px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2 ${compact ? "" : "justify-between lg:flex-col lg:items-end"}`}>
-            <div className={compact ? "hidden sm:block" : "text-right"}>
+            <div className={compact ? "hidden text-right sm:block" : "text-right"}>
               <p className="text-sm font-semibold">{session.user.email}</p>
               <p className="text-[10px] uppercase tracking-wider text-bronze">
                 {session.user.role ? roleLabel(session.user.role) : ""} · {campusLabel(campus)}
@@ -164,6 +146,7 @@ export function Header({ compact = false }: { compact?: boolean }) {
                   className="mt-1 max-w-28 rounded-lg bg-navy px-1 py-0.5 text-[10px] text-white"
                   value={campus}
                   onChange={(event) => setCampus(event.target.value as typeof campus)}
+                  aria-label="Campus"
                 >
                   {CAMPUS_OPTIONS.map((item) => (
                     <option key={item} value={item}>
@@ -178,6 +161,20 @@ export function Header({ compact = false }: { compact?: boolean }) {
                 </p>
               ) : null}
             </div>
+            {compact && canSwitch ? (
+              <select
+                className="min-h-9 max-w-20 rounded-lg bg-navy px-1 text-[10px] text-white sm:hidden"
+                value={campus}
+                onChange={(event) => setCampus(event.target.value as typeof campus)}
+                aria-label="Campus"
+              >
+                {CAMPUS_OPTIONS.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <button
               type="button"
               className="btn-ghost min-h-10 px-3 text-xs text-white"

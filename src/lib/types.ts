@@ -5,7 +5,7 @@ export type AreaId =
   | "primer-piso"
   | "segundo-piso";
 
-export type SeatStatus = "unassigned" | "available" | "held" | "sold";
+export type SeatStatus = "unassigned" | "available" | "held" | "sold" | "foreign";
 export type DiscountType = "fixed" | "percent";
 export type PaymentMode = "total" | "partial";
 export type PaymentMethod = "card" | "cash";

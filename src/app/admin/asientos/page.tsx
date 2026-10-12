@@ -36,7 +36,7 @@ export default function AsientosAdminPage() {
   }, [located]);
 
   function statusOfDraft(id: string): SeatStatus {
-    if (foreign.has(id)) return "held";
+    if (foreign.has(id)) return "foreign";
     return draft[id] ?? "unassigned";
   }
 
@@ -59,7 +59,7 @@ export default function AsientosAdminPage() {
   }
 
   function toggle(id: string, status: SeatStatus) {
-    if (!canEdit || status === "held" || status === "sold") return;
+    if (!canEdit || status === "held" || status === "sold" || status === "foreign") return;
     applyStatus([id], status === "available" ? "unassigned" : "available");
   }
 
@@ -90,7 +90,8 @@ export default function AsientosAdminPage() {
         <p className="text-xs uppercase tracking-wider text-bronze-dark">Asientos</p>
         <h2 className="font-display text-3xl">Asignación de áreas y asientos</h2>
         <p className="mt-2 text-sm text-ink-muted">
-          Verde = a la venta. Gris = no asignado. Los cambios son un borrador hasta pulsar{" "}
+          Verde = a la venta. Gris claro = no asignado. Gris más oscuro = de otro campus (no se
+          puede asignar). Los cambios son un borrador hasta pulsar{" "}
           <strong>Guardar disponibilidad</strong>; solo entonces aparecen en el módulo de venta.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">

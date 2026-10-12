@@ -13,6 +13,7 @@ import { usePanZoom } from "./usePanZoom";
 
 const STATUS_FILL: Record<SeatStatus, string> = {
   unassigned: COLORS.unassigned,
+  foreign: COLORS.foreign,
   available: COLORS.available,
   held: COLORS.held,
   sold: COLORS.sold,
@@ -266,8 +267,8 @@ export function CurvedSeatMap({
                     y={2}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
-                    stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
+                    fill={status === "unassigned" || status === "foreign" ? "#0B132B" : "#F8FAFC"}
+                    stroke={status === "unassigned" || status === "foreign" ? "#F8FAFC" : "#060B18"}
                     strokeWidth={1.1}
                     paintOrder="stroke"
                     fontSize="9"

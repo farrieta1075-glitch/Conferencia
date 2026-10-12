@@ -30,6 +30,7 @@ import { usePanZoom } from "./usePanZoom";
 
 const STATUS_FILL: Record<SeatStatus, string> = {
   unassigned: COLORS.unassigned,
+  foreign: COLORS.foreign,
   available: COLORS.available,
   held: COLORS.held,
   sold: COLORS.sold,
@@ -610,6 +611,7 @@ const SectionSeats = memo(function SectionSeats({
           const number = item.slot.number;
           const id = seatId(geo.sectionId, row.id, number);
           const status = statusOf(id);
+          if (status === "foreign") return null;
           if (status === "unassigned" && !includeUnassigned) return null;
           const radius = bands
             ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)

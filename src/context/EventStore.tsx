@@ -733,7 +733,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         });
       },
       statusOf: (id) => {
-        if (foreignSet.has(id)) return "held";
+        if (foreignSet.has(id)) return "foreign";
         return state.seatStatus[id] ?? "unassigned";
       },
     };
