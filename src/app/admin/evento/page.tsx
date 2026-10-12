@@ -106,6 +106,10 @@ export default function EventoAdminPage() {
             }}
           />
         </label>
+        <p className="text-sm text-ink-muted">
+          El logo se guarda en Google Sheets al pulsar Guardar evento y queda disponible en
+          producción para todos los campus.
+        </p>
         {logoDataUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={logoDataUrl} alt="Logo del evento" className="h-20 w-20 rounded-2xl object-cover" />
@@ -168,7 +172,7 @@ function compressImage(file: File): Promise<string> {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const scale = Math.min(1, 256 / Math.max(img.width, img.height));
+        const scale = Math.min(1, 192 / Math.max(img.width, img.height));
         canvas.width = img.width * scale;
         canvas.height = img.height * scale;
         const ctx = canvas.getContext("2d");

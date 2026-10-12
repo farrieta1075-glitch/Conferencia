@@ -544,6 +544,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         type: "hydrate",
         state: withCanonicalAreas({
           ...incoming,
+          event: {
+            ...incoming.event,
+            logoDataUrl: incoming.event.logoDataUrl || stateRef.current.event.logoDataUrl,
+          },
           tabulador: preferSlottedTabulador(
             incoming.tabulador,
             stateRef.current.tabulador,
@@ -594,8 +598,16 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       availableCount,
       setEvent: async (event) => {
         dispatch({ type: "setEvent", event });
-        queueSheets({ event: true });
+        stateRef.current = { ...stateRef.current, event };
         await apiFetch("/api/event", { method: "PATCH", body: JSON.stringify(event) });
+        if (canSyncRef.current) {
+          await syncSheets({
+            campus: campusRef.current,
+            event,
+            officialCapacity: stateRef.current.tabulador.officialCapacity,
+            version: stateRef.current.tabulador.version,
+          });
+        }
       },
       importTabulador: async (tabulador, resetAssignments) => {
         const canonical = rehomeSectionsByNumber(tabulador);

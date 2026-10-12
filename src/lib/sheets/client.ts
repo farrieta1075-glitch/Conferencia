@@ -11,6 +11,7 @@ const CONFIG_FILE = dataFile("config.json");
 
 export const SHEET_TABS = [
   "Evento",
+  "Logo",
   "Tabulador",
   "Disponibilidad",
   "Precios",

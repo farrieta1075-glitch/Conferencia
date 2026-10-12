@@ -62,6 +62,11 @@ function parseAreaId(value: string, sectionId = ""): AreaId | null {
   return null;
 }
 
+function readLogoDataUrl(rows: string[][]): string | undefined {
+  const data = (rows[1] ?? []).join("");
+  return data.startsWith("data:image") ? data : undefined;
+}
+
 function parseSeatStatus(value: string): SeatStatus | null {
   if (value === "unassigned" || value === "available" || value === "held" || value === "sold") {
     return value;
@@ -238,6 +243,7 @@ export async function loadStateFromSheets(
 
   const [
     evento,
+    logoRows,
     tabuladorRows,
     disponibilidad,
     precios,
@@ -248,6 +254,7 @@ export async function loadStateFromSheets(
     pagos,
   ] = await readRanges(spreadsheetId, [
     "Evento!A1:E",
+    "Logo!A1:Z",
     "Tabulador!A1:F",
     "Disponibilidad!A1:C",
     "Precios!A1:C",
@@ -323,6 +330,7 @@ export async function loadStateFromSheets(
     event: {
       name: eventName || "Evento",
       datetime: eventDatetime || new Date().toISOString(),
+      logoDataUrl: readLogoDataUrl(logoRows),
     },
     tabulador: tabulador ?? {
       venueName: "Auditorio Nacional",

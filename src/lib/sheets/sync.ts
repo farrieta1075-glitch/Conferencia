@@ -41,6 +41,16 @@ function rows(values: (string | number)[][]) {
   return values.map((row) => row.map((cell) => String(cell ?? "")));
 }
 
+const LOGO_CHUNK = 45000;
+
+async function writeLogo(spreadsheetId: string, dataUrl: string) {
+  const chunks: string[] = [];
+  for (let index = 0; index < dataUrl.length; index += LOGO_CHUNK) {
+    chunks.push(dataUrl.slice(index, index + LOGO_CHUNK));
+  }
+  await replaceTab(spreadsheetId, "Logo", [["logo"], chunks.length ? chunks : [""]]);
+}
+
 async function rowCount(spreadsheetId: string, tab: string): Promise<number> {
   const sheets = getSheets();
   const result = await sheets.spreadsheets.values.get({
@@ -179,6 +189,9 @@ export async function applySheetsDelta(delta: SheetsDelta) {
         delta.version ?? "",
       ],
     ]);
+    if (delta.event.logoDataUrl?.startsWith("data:image")) {
+      await writeLogo(spreadsheetId, delta.event.logoDataUrl);
+    }
   }
 
   if (delta.prices) {
