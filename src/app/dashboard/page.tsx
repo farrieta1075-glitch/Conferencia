@@ -31,10 +31,12 @@ export default function DashboardPage() {
 
   const metrics = useMemo(() => {
     const seats = flattenSeats(state.tabulador);
+    const foreign = new Set(state.foreignSeats ?? []);
     const counts = { unassigned: 0, available: 0, held: 0, sold: 0 };
     let goalMoney = 0;
     let goalSeats = 0;
     for (const seat of seats) {
+      if (foreign.has(seat.id)) continue;
       const status = statusOf(seat.id);
       counts[status] += 1;
       if (status === "unassigned") continue;
@@ -121,8 +123,9 @@ export default function DashboardPage() {
     const currentWeek = weekStart(new Date().toISOString());
     const dataWeeks = [...cashflow.keys(), ...methods.keys()].sort();
     const fromWeek = dataWeeks[0] ?? addDays(currentWeek, -7 * 7);
-    const weeks = enumerateWeeks(fromWeek, currentWeek);
-    const cashPoints: BarPoint[] = weeks.map((key) => ({
+    const cashWeeks = enumerateWeeks(fromWeek, addDays(currentWeek, 7 * 4));
+    const methodWeeks = enumerateWeeks(fromWeek, currentWeek);
+    const cashPoints: BarPoint[] = cashWeeks.map((key) => ({
       id: key,
       label: weekLabel(key),
       values: {
@@ -130,7 +133,7 @@ export default function DashboardPage() {
         pending: cashflow.get(key)?.pending ?? 0,
       },
     }));
-    const methodPoints: BarPoint[] = weeks.map((key) => ({
+    const methodPoints: BarPoint[] = methodWeeks.map((key) => ({
       id: key,
       label: weekLabel(key),
       values: {
@@ -197,13 +200,8 @@ export default function DashboardPage() {
               Ampliar
             </button>
           </div>
-          <div className="mt-2 h-24 overflow-x-auto">
-            <MiniBarChart
-              series={cashSeries}
-              points={metrics.cashPoints}
-              selectedId={expandedWeek}
-              onSelect={(id) => setExpandedWeek((current) => (current === id ? null : id))}
-            />
+          <div className="mt-2 h-40 overflow-x-auto">
+            <MiniBarChart stacked series={cashSeries} points={metrics.cashPoints} height={150} />
           </div>
         </article>
         <article className="card p-4">
@@ -213,51 +211,11 @@ export default function DashboardPage() {
               Ampliar
             </button>
           </div>
-          <div className="mt-2 h-24 overflow-x-auto">
-            <MiniBarChart
-              series={methodSeries}
-              points={metrics.methodPoints}
-              selectedId={expandedWeek}
-              onSelect={(id) => setExpandedWeek((current) => (current === id ? null : id))}
-            />
+          <div className="mt-2 h-40 overflow-x-auto">
+            <MiniBarChart stacked series={methodSeries} points={metrics.methodPoints} height={150} />
           </div>
         </article>
       </section>
-      {expandedWeek ? (
-        <section className="card p-4">
-          <p className="text-sm font-semibold">
-            {weekLabel(expandedWeek)} por día · toca la semana otra vez para contraer
-          </p>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
-            <div className="h-28">
-              <MiniBarChart
-                series={cashSeries}
-                points={metrics.daysOf(expandedWeek).map((day) => ({
-                  id: day,
-                  label: dayLabel(day),
-                  values: {
-                    received: metrics.cashByDay.get(day)?.received ?? 0,
-                    pending: metrics.cashByDay.get(day)?.pending ?? 0,
-                  },
-                }))}
-              />
-            </div>
-            <div className="h-28">
-              <MiniBarChart
-                series={methodSeries}
-                points={metrics.daysOf(expandedWeek).map((day) => ({
-                  id: day,
-                  label: dayLabel(day),
-                  values: {
-                    card: metrics.methodsByDay.get(day)?.card ?? 0,
-                    cash: metrics.methodsByDay.get(day)?.cash ?? 0,
-                  },
-                }))}
-              />
-            </div>
-          </div>
-        </section>
-      ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Vendidos" value={metrics.counts.sold} color="text-sold" />
@@ -347,6 +305,7 @@ export default function DashboardPage() {
             </div>
             <div className="h-64">
               <MiniBarChart
+                stacked
                 series={open === "cashflow" ? cashSeries : methodSeries}
                 points={open === "cashflow" ? metrics.cashPoints : metrics.methodPoints}
                 height={240}
@@ -358,6 +317,7 @@ export default function DashboardPage() {
               <div className="mt-4 h-48">
                 <p className="mb-2 text-sm font-semibold">{weekLabel(expandedWeek)} por día</p>
                 <MiniBarChart
+                  stacked
                   series={open === "cashflow" ? cashSeries : methodSeries}
                   points={metrics.daysOf(expandedWeek).map((day) => {
                     const values: Record<string, number> =

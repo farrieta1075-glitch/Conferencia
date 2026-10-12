@@ -83,6 +83,7 @@ export interface Installment {
   date: string;
   amount: number;
   paid: boolean;
+  originalAmount?: number;
 }
 
 export interface PaymentRecord {
@@ -139,6 +140,7 @@ export interface PersistedState {
   event: EventConfig;
   tabulador: VenueTabulador;
   seatStatus: Record<string, SeatStatus>;
+  foreignSeats?: string[];
   prices: AreaPrice[];
   promotions: Promotion[];
   purchases: Purchase[];

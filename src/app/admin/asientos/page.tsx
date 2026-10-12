@@ -13,6 +13,7 @@ import type { SeatStatus } from "@/lib/types";
 
 export default function AsientosAdminPage() {
   const { state, saveSeatAssignments } = useEventStore();
+  const foreign = useMemo(() => new Set(state.foreignSeats ?? []), [state.foreignSeats]);
   const canEdit = useCan("seats:edit");
   const [sectionId, setSectionId] = useState(state.tabulador.areas[0]?.sections[0]?.id ?? "105");
   const [draft, setDraft] = useState<Record<string, SeatStatus>>(state.seatStatus);
@@ -35,6 +36,7 @@ export default function AsientosAdminPage() {
   }, [located]);
 
   function statusOfDraft(id: string): SeatStatus {
+    if (foreign.has(id)) return "held";
     return draft[id] ?? "unassigned";
   }
 
@@ -43,6 +45,7 @@ export default function AsientosAdminPage() {
     setDraft((current) => {
       const next = { ...current };
       for (const id of ids) {
+        if (foreign.has(id)) continue;
         const now = next[id] ?? "unassigned";
         if (now === "held" || now === "sold") continue;
         if (status === "unassigned") delete next[id];

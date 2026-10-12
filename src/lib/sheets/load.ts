@@ -1,5 +1,6 @@
 import { AREA_LABELS, AREA_ORDER, DEFAULT_PRICES } from "@/lib/constants";
-import { DEFAULT_CAMPUS, type DataCampus } from "@/lib/campus";
+import { syncInstallmentsToPaid } from "@/lib/purchases";
+import { DEFAULT_CAMPUS, dataCampusOf, type DataCampus } from "@/lib/campus";
 import { filterCampusRows } from "@/lib/sheets/campusRows";
 import { ensureTabs, getSheets, getSpreadsheetId, sheetsConfigured } from "@/lib/sheets/client";
 import { canonicalizeSectionId } from "@/lib/tabulador/ids";
@@ -106,6 +107,7 @@ function buildTabulador(
     if (Number.isFinite(order)) row.order = order;
 
     if (looksLikeSeatLayout(seatRaw ?? "")) {
+      if (row.slots?.length) continue;
       const slots = tokenizeSeatLayout(seatRaw);
       if (slots.length) {
         row.slots = slots;
@@ -186,38 +188,41 @@ function buildPurchases(
               },
             ]
           : [];
-    purchases.push({
-      id,
-      createdAt: createdAt || new Date().toISOString(),
-      campus,
-      customer: { email: email || "", phone: phone || "" },
-      paymentMode,
-      paymentMethod,
-      tickets: ticketRows
-        .filter((item) => item[0] === id)
-        .map((item) => ({
-          id: item[1] || `tkt-${id}-${item[2]}`,
-          seatId: item[2],
-          holderName: item[3] || "",
-          price: Number(item[4]) || 0,
-          basePrice: Number(item[4]) || 0,
-          promotionName: item[5] || undefined,
-        })),
-      deposit: paid,
-      total,
-      paid,
-      installments: installmentRows
-        .filter((item) => item[0] === id)
-        .map((item) => ({
-          index: Number(item[1]) || 0,
-          date: item[2],
-          amount: Number(item[3]) || 0,
-          paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
-        })),
-      payments: paymentsForPurchase,
-      cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
-      reminders: [],
-    });
+    purchases.push(
+      syncInstallmentsToPaid({
+        id,
+        createdAt: createdAt || new Date().toISOString(),
+        campus,
+        customer: { email: email || "", phone: phone || "" },
+        paymentMode,
+        paymentMethod,
+        tickets: ticketRows
+          .filter((item) => item[0] === id)
+          .map((item) => ({
+            id: item[1] || `tkt-${id}-${item[2]}`,
+            seatId: item[2],
+            holderName: item[3] || "",
+            price: Number(item[4]) || 0,
+            basePrice: Number(item[4]) || 0,
+            promotionName: item[5] || undefined,
+          })),
+        deposit: paid,
+        total,
+        paid,
+        installments: installmentRows
+          .filter((item) => item[0] === id)
+          .map((item) => ({
+            index: Number(item[1]) || 0,
+            date: item[2],
+            amount: Number(item[3]) || 0,
+            paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
+            originalAmount: Number(item[5]) || Number(item[3]) || 0,
+          })),
+        payments: paymentsForPurchase,
+        cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
+        reminders: [],
+      }),
+    );
   }
 
   return purchases;
@@ -249,17 +254,17 @@ export async function loadStateFromSheets(
     "Promociones!A1:G",
     "Ventas!A1:K",
     "Boletos!A1:G",
-    "Parcialidades!A1:F",
+    "Parcialidades!A1:G",
     "Pagos!A1:I",
   ]);
 
   const eventoRows = filterCampusRows(evento, 4, campus);
-  const eventoData = eventoRows[1] ?? [];
+  const eventoData = eventoRows[1] ?? evento.find((row, index) => index > 0 && row.some(Boolean)) ?? [];
   const eventName = eventoData[0] || "";
   const eventDatetime = eventoData[1] || "";
   const officialCapacity = Number(eventoData[2]) || 0;
   const version = eventoData[3] || "sheets";
-  const tabuladorRaw = buildTabulador(filterCampusRows(tabuladorRows, 5, campus), officialCapacity, version);
+  const tabuladorRaw = buildTabulador(tabuladorRows, officialCapacity, version);
   const tabulador = tabuladorRaw ? rehomeSectionsByNumber(tabuladorRaw) : null;
 
   const hasEvent = Boolean(eventName && eventDatetime);
@@ -270,8 +275,17 @@ export async function loadStateFromSheets(
   const hasStatus = disponibilidadCampus.length > 1;
   if (!hasEvent && !hasTabulador && !hasSales && !hasStatus) return null;
 
+  const claimed = new Map<string, DataCampus>();
+  for (const row of disponibilidad.slice(1)) {
+    const id = row[0];
+    const status = parseSeatStatus(row[1] ?? "");
+    if (!id || !status || status === "unassigned") continue;
+    if (!claimed.has(id)) claimed.set(id, dataCampusOf(row[2]));
+  }
+  const foreignSeats = [...claimed.entries()].filter(([, owner]) => owner !== campus).map(([id]) => id);
   const seatStatus: Record<string, SeatStatus> = {};
   for (const [id, statusRaw] of disponibilidadCampus.slice(1)) {
+    if (claimed.get(id) !== campus) continue;
     const status = parseSeatStatus(statusRaw);
     if (id && status) seatStatus[id] = status;
   }
@@ -280,7 +294,8 @@ export async function loadStateFromSheets(
     areaId,
     basePrice: DEFAULT_PRICES[areaId],
   }));
-  for (const [areaRaw, priceRaw] of filterCampusRows(precios, 2, campus).slice(1)) {
+  const priceRows = filterCampusRows(precios, 2, campus);
+  for (const [areaRaw, priceRaw] of (priceRows.length > 1 ? priceRows : precios).slice(1)) {
     const areaId = parseAreaId(areaRaw);
     if (!areaId) continue;
     const basePrice = Number(priceRaw);
@@ -317,12 +332,13 @@ export async function loadStateFromSheets(
       areas: [],
     },
     seatStatus,
+    foreignSeats,
     prices,
     promotions,
     purchases: buildPurchases(
       ventasCampus,
       filterCampusRows(boletos, 6, campus),
-      filterCampusRows(parcialidades, 5, campus),
+      filterCampusRows(parcialidades, 6, campus),
       filterCampusRows(pagos, 8, campus),
       campus,
     ),

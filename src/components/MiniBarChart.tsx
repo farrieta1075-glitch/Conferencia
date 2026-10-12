@@ -12,33 +12,42 @@ export interface BarPoint {
   values: Record<string, number>;
 }
 
+function formatK(value: number): string {
+  if (value < 0.05) return "";
+  return `${(value / 1000).toFixed(1)}K`;
+}
+
 export function MiniBarChart({
   series,
   points,
-  height = 88,
+  height = 160,
+  stacked = false,
   selectedId,
   onSelect,
 }: {
   series: BarSeries[];
   points: BarPoint[];
   height?: number;
+  stacked?: boolean;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
 }) {
-  const max = Math.max(
-    1,
-    ...points.flatMap((point) => series.map((item) => point.values[item.key] ?? 0)),
-  );
-  const barW = Math.max(6, 140 / Math.max(points.length, 1));
-  const groupW = barW * series.length + 8;
-  const width = Math.max(160, points.length * groupW + 8);
+  const totals = points.map((point) => series.reduce((sum, item) => sum + (point.values[item.key] ?? 0), 0));
+  const max = Math.max(1, ...totals);
+  const barW = stacked ? 36 : Math.max(8, 140 / Math.max(points.length, 1));
+  const groupW = stacked ? barW + 28 : barW * series.length + 8;
+  const width = Math.max(180, points.length * groupW + 16);
+  const topPad = 18;
+  const bottomPad = 16;
+  const usable = height - topPad - bottomPad;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full">
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
       {points.map((point, index) => {
-        const groupX = 8 + index * groupW;
+        const groupX = 10 + index * groupW;
         const id = point.id ?? point.label;
         const selected = selectedId === id;
+        const total = totals[index];
         return (
           <g
             key={id}
@@ -49,38 +58,42 @@ export function MiniBarChart({
               onSelect(id);
             }}
           >
-            {onSelect ? (
-              <rect
-                x={groupX - 2}
-                y={0}
-                width={barW * series.length + 4}
+            {stacked ? (
+              <StackedBar
+                x={groupX}
+                barW={barW}
                 height={height}
-                fill={selected ? "#E8C39A" : "transparent"}
-                opacity={selected ? 0.25 : 0}
+                usable={usable}
+                max={max}
+                series={series}
+                values={point.values}
+                total={total}
+                selected={selected}
               />
-            ) : null}
-            {series.map((item, sIndex) => {
-              const value = point.values[item.key] ?? 0;
-              const h = (value / max) * (height - 22);
-              return (
-                <rect
-                  key={item.key}
-                  x={groupX + sIndex * barW}
-                  y={height - 16 - h}
-                  width={barW - 1}
-                  height={Math.max(h, 0)}
-                  fill={item.color}
-                  rx={1}
-                />
-              );
-            })}
+            ) : (
+              series.map((item, sIndex) => {
+                const value = point.values[item.key] ?? 0;
+                const h = (value / max) * usable;
+                return (
+                  <rect
+                    key={item.key}
+                    x={groupX + sIndex * barW}
+                    y={height - bottomPad - h}
+                    width={barW - 1}
+                    height={Math.max(h, 0)}
+                    fill={item.color}
+                    rx={1}
+                  />
+                );
+              })
+            )}
             <text
-              x={groupX + (barW * series.length) / 2}
-              y={height - 4}
+              x={groupX + barW / 2}
+              y={height - 3}
               textAnchor="middle"
-              fontSize={7}
+              fontSize={8}
               fill="#334155"
-              fontWeight={selected ? 700 : 400}
+              fontWeight={selected ? 700 : 500}
             >
               {point.label}
             </text>
@@ -88,5 +101,77 @@ export function MiniBarChart({
         );
       })}
     </svg>
+  );
+}
+
+function StackedBar({
+  x,
+  barW,
+  height,
+  usable,
+  max,
+  series,
+  values,
+  total,
+  selected,
+}: {
+  x: number;
+  barW: number;
+  height: number;
+  usable: number;
+  max: number;
+  series: BarSeries[];
+  values: Record<string, number>;
+  total: number;
+  selected: boolean;
+}) {
+  const bottom = height - 16;
+  let y = bottom;
+  const totalH = (total / max) * usable;
+  const totalLabel = formatK(total);
+
+  return (
+    <>
+      {selected ? (
+        <rect x={x - 4} y={2} width={barW + 22} height={height - 4} fill="#E8C39A" opacity="0.2" rx={4} />
+      ) : null}
+      {series.map((item) => {
+        const value = values[item.key] ?? 0;
+        const h = (value / max) * usable;
+        y -= h;
+        const label = formatK(value);
+        const fits = h >= 12 && barW >= 28;
+        const midY = y + h / 2 + 3;
+        return (
+          <g key={item.key}>
+            <rect x={x} y={y} width={barW} height={Math.max(h, 0)} fill={item.color} />
+            {label ? (
+              <text
+                x={fits ? x + barW / 2 : x + barW + 3}
+                y={fits ? midY : Math.max(y + 8, midY)}
+                textAnchor={fits ? "middle" : "start"}
+                fontSize={7}
+                fontWeight={600}
+                fill={fits ? "#FFFFFF" : item.color}
+              >
+                {label}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+      {totalLabel ? (
+        <text
+          x={x + barW / 2}
+          y={Math.max(11, bottom - totalH - 4)}
+          textAnchor="middle"
+          fontSize={10}
+          fontWeight={700}
+          fill="#0F172A"
+        >
+          {totalLabel}
+        </text>
+      ) : null}
+    </>
   );
 }

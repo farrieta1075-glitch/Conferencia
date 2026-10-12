@@ -216,6 +216,22 @@ export default function BoletosAdminPage() {
               </button>
             </div>
             <RoleGate allow="tickets:edit">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="h-5 w-5"
+                  checked={withEmail}
+                  onChange={(event) => {
+                    setWithEmail(event.target.checked);
+                    if (!event.target.checked) {
+                      setDraft((current) => ({ ...current, email: NO_EMAIL }));
+                    } else if ((draft.email ?? "").toLowerCase() === NO_EMAIL) {
+                      setDraft((current) => ({ ...current, email: "" }));
+                    }
+                  }}
+                />
+                El cliente proporciona correo
+              </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm font-medium text-ink-muted">
                   Teléfono
@@ -225,37 +241,17 @@ export default function BoletosAdminPage() {
                     onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
                   />
                 </label>
-              <div>
-                <label className="mb-2 flex min-h-11 items-center gap-2 text-sm">
+                <label className="text-sm font-medium text-ink-muted">
+                  Correo
                   <input
-                    type="checkbox"
-                    className="h-5 w-5"
-                    checked={withEmail}
-                    onChange={(event) => {
-                      setWithEmail(event.target.checked);
-                      if (!event.target.checked) {
-                        setDraft((current) => ({ ...current, email: NO_EMAIL }));
-                      } else if ((draft.email ?? "").toLowerCase() === NO_EMAIL) {
-                        setDraft((current) => ({ ...current, email: "" }));
-                      }
-                    }}
+                    className="field mt-1"
+                    type="email"
+                    disabled={!withEmail}
+                    placeholder={withEmail ? "" : NO_EMAIL}
+                    value={withEmail ? (draft.email === NO_EMAIL ? "" : (draft.email ?? "")) : ""}
+                    onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
                   />
-                  El cliente proporciona correo
                 </label>
-                {withEmail ? (
-                  <label className="text-sm font-medium text-ink-muted">
-                    Correo
-                    <input
-                      className="field mt-1"
-                      type="email"
-                      value={draft.email === NO_EMAIL ? "" : (draft.email ?? "")}
-                      onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
-                    />
-                  </label>
-                ) : (
-                  <p className="text-sm text-ink-muted">Se guardará como {NO_EMAIL}.</p>
-                )}
-              </div>
               </div>
               <ul className="space-y-2">
                 {selected.tickets.map((ticket, index) => {

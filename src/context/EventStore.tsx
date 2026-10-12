@@ -88,6 +88,7 @@ function createDefaultState(): PersistedState {
     },
     tabulador: defaultTabulador,
     seatStatus: seedSeatStatus(defaultTabulador),
+    foreignSeats: [],
     prices: AREA_ORDER.map((areaId) => ({
       areaId,
       basePrice: DEFAULT_PRICES[areaId],
@@ -217,7 +218,9 @@ function reducer(state: PersistedState, action: Action): PersistedState {
     }
     case "assignSeats": {
       const seatStatus = { ...state.seatStatus };
+      const foreign = new Set(state.foreignSeats ?? []);
       for (const id of action.payload.seatIds) {
+        if (foreign.has(id)) continue;
         const current = seatStatus[id] ?? "unassigned";
         if (current === "held" || current === "sold") continue;
         if (action.payload.status === "unassigned") delete seatStatus[id];
@@ -569,6 +572,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       (id) => (state.seatStatus[id] ?? "unassigned") === "available",
     ).length;
 
+    const foreignSet = new Set(state.foreignSeats ?? []);
     return {
       state,
       hydrated,
@@ -628,6 +632,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         await apiFetch(`/api/promotions?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       },
       buy: async (payload) => {
+        const foreign = new Set(state.foreignSeats ?? []);
+        if (payload.seatIds.some((id) => foreign.has(id))) {
+          throw new Error("Uno o más asientos ya están asignados a otro campus");
+        }
         const purchase = {
           ...(await buildPurchase(state, payload)),
           campus: campusRef.current,
@@ -675,8 +683,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         queueSheets({ purchases: true, seatPatch });
       },
       saveSeatAssignments: async (seatStatus) => {
+        const foreign = new Set(stateRef.current.foreignSeats ?? []);
         const next: Record<string, SeatStatus> = {};
         for (const [id, status] of Object.entries(seatStatus)) {
+          if (foreign.has(id)) continue;
           if (status && status !== "unassigned") next[id] = status;
         }
         for (const [id, status] of Object.entries(stateRef.current.seatStatus)) {
@@ -722,7 +732,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           }),
         });
       },
-      statusOf: (id) => state.seatStatus[id] ?? "unassigned",
+      statusOf: (id) => {
+        if (foreignSet.has(id)) return "held";
+        return state.seatStatus[id] ?? "unassigned";
+      },
     };
   }, [hydrated, state]);
 

@@ -7,7 +7,7 @@ import type {
   SeatStatus,
   VenueTabulador,
 } from "@/lib/types";
-import { DEFAULT_CAMPUS, type DataCampus } from "@/lib/campus";
+import { DEFAULT_CAMPUS, dataCampusOf, type DataCampus } from "@/lib/campus";
 import { remainingBalance } from "@/lib/purchases";
 import { listUsers } from "@/lib/auth/users";
 import { writeUsersToSheets } from "@/lib/sheets/users";
@@ -93,6 +93,22 @@ async function mergeCampusTab(
   await replaceTab(spreadsheetId, tab, values, protectIfShrunk);
 }
 
+async function omitForeignSeats(
+  spreadsheetId: string,
+  campus: DataCampus,
+  entries: [string, SeatStatus][],
+): Promise<[string, SeatStatus][]> {
+  const existing = await readTab(spreadsheetId, "Disponibilidad!A1:Z");
+  const foreign = new Set<string>();
+  for (const row of existing.slice(1)) {
+    const id = row[0];
+    const status = (row[1] ?? "").trim().toLowerCase();
+    if (!id || !status || status === "unassigned") continue;
+    if (dataCampusOf(row[2]) !== campus) foreign.add(id);
+  }
+  return entries.filter(([id]) => !foreign.has(id));
+}
+
 function purchaseSheets(purchases: Purchase[]) {
   return {
     ventas: purchases.map((purchase) => [
@@ -124,6 +140,7 @@ function purchaseSheets(purchases: Purchase[]) {
         item.date,
         item.amount,
         item.paid ? "si" : "no",
+        item.originalAmount ?? item.amount,
       ]),
     ),
     pagos: purchases.flatMap((purchase) =>
@@ -175,22 +192,17 @@ export async function applySheetsDelta(delta: SheetsDelta) {
   }
 
   if (delta.writeTabulador && delta.tabulador) {
-    const existing = await readTab(spreadsheetId, "Tabulador!A1:Z");
-    const others = keepOtherCampusRows(existing, 5, campus);
-    const ownCount = Math.max(0, existing.slice(1).length - others.length);
+    const existing = await rowCount(spreadsheetId, "Tabulador");
     const looksDefault =
       delta.tabulador.version === "2.0.0" || delta.tabulador.officialCapacity === 9564;
-    if (looksDefault && ownCount > 500) {
+    if (looksDefault && existing > 500) {
       throw new Error(
-        `Se protegió el tabulador de Google Sheets (${ownCount} filas de ${campus}). No se reemplaza con el recinto por defecto.`,
+        `Se protegió el tabulador de Google Sheets (${existing} filas). No se reemplaza con el recinto por defecto.`,
       );
     }
-    await mergeCampusTab(
-      spreadsheetId,
-      "Tabulador",
-      ["area", "seccion", "fila", "asientos", "orden", "campus"],
-      campus,
-      delta.tabulador.areas.flatMap((area) =>
+    await replaceTab(spreadsheetId, "Tabulador", [
+      ["area", "seccion", "fila", "asientos", "orden"],
+      ...delta.tabulador.areas.flatMap((area) =>
         area.sections.flatMap((section) =>
           section.rows.map((row) => [
             area.id,
@@ -201,16 +213,17 @@ export async function applySheetsDelta(delta: SheetsDelta) {
           ]),
         ),
       ),
-    );
+    ]);
   }
 
   if (delta.seatStatus) {
+    const ownSeats = await omitForeignSeats(spreadsheetId, campus, Object.entries(delta.seatStatus));
     await mergeCampusTab(
       spreadsheetId,
       "Disponibilidad",
       ["asiento_id", "estatus", "campus"],
       campus,
-      Object.entries(delta.seatStatus),
+      ownSeats,
       !delta.forceSeatStatus,
     );
   } else if (delta.seatPatch && Object.keys(delta.seatPatch).length) {
@@ -219,12 +232,13 @@ export async function applySheetsDelta(delta: SheetsDelta) {
       if (status === "unassigned") delete current[id];
       else current[id] = status;
     }
+    const ownSeats = await omitForeignSeats(spreadsheetId, campus, Object.entries(current));
     await mergeCampusTab(
       spreadsheetId,
       "Disponibilidad",
       ["asiento_id", "estatus", "campus"],
       campus,
-      Object.entries(current),
+      ownSeats,
       true,
     );
   }
@@ -265,7 +279,7 @@ export async function applySheetsDelta(delta: SheetsDelta) {
     await mergeCampusTab(
       spreadsheetId,
       "Parcialidades",
-      ["compra_id", "indice", "fecha", "monto", "pagado", "campus"],
+      ["compra_id", "indice", "fecha", "monto", "pagado", "monto_original", "campus"],
       campus,
       sheets.parcialidades,
     );

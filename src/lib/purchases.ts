@@ -11,6 +11,19 @@ export function remainingBalance(purchase: Purchase): number {
   return roundMoney(Math.max(0, purchase.total - purchase.paid));
 }
 
+export function syncInstallmentsToPaid(purchase: Purchase): Purchase {
+  let credit = roundMoney(purchase.paid);
+  const installments = purchase.installments.map((item) => {
+    const quota = item.originalAmount ?? item.amount;
+    if (credit + 0.009 >= quota) {
+      credit = roundMoney(credit - quota);
+      return { ...item, originalAmount: quota, amount: quota, paid: true };
+    }
+    return { ...item, originalAmount: quota, amount: quota, paid: false };
+  });
+  return { ...purchase, installments };
+}
+
 export function findPurchaseBySeat(purchases: Purchase[], seatId: string): Purchase | undefined {
   return purchases.find((purchase) => purchase.tickets.some((ticket) => ticket.seatId === seatId));
 }
@@ -42,30 +55,13 @@ export function voidPurchasePayment(purchase: Purchase, paymentId: string, reaso
   );
   const paid = roundMoney(activePayments({ ...purchase, payments }).reduce((sum, item) => sum + item.amount, 0));
   const cancelled = paid <= 0.009;
-
-  let leftover = target.amount;
-  const installments = [...purchase.installments]
-    .reverse()
-    .map((item) => {
-      if (leftover <= 0) return item;
-      if (item.paid) {
-        leftover = roundMoney(Math.max(0, leftover - item.amount));
-        return { ...item, paid: false };
-      }
-      const nextAmount = roundMoney(item.amount + leftover);
-      leftover = 0;
-      return { ...item, amount: nextAmount, paid: false };
-    })
-    .reverse();
-
-  return {
+  return syncInstallmentsToPaid({
     ...purchase,
     paid,
     cancelled,
     paymentMode: cancelled || paid < purchase.total - 0.009 ? "partial" : "total",
-    installments: cancelled ? installments.map((item) => ({ ...item, paid: false })) : installments,
     payments,
-  };
+  });
 }
 
 export function applyPurchasePatch(purchase: Purchase, patch: PurchasePatch): Purchase {
@@ -93,18 +89,6 @@ export function applyPurchasePayment(
   const add = settleAll ? remaining : roundMoney(Math.min(Math.max(0, amount), remaining));
   if (add <= 0) return purchase;
 
-  let leftover = add;
-  const installments = purchase.installments.map((item) => {
-    if (item.paid || leftover <= 0) return item;
-    if (leftover + 0.009 >= item.amount) {
-      leftover = roundMoney(leftover - item.amount);
-      return { ...item, paid: true };
-    }
-    const reduced = roundMoney(item.amount - leftover);
-    leftover = 0;
-    return { ...item, amount: reduced };
-  });
-
   const paid = roundMoney(purchase.paid + add);
   const settled = paid >= purchase.total - 0.009;
   const payment: PaymentRecord = {
@@ -113,11 +97,10 @@ export function applyPurchasePayment(
     amount: add,
     method: purchase.paymentMethod,
   };
-  return {
+  return syncInstallmentsToPaid({
     ...purchase,
     paid: settled ? purchase.total : paid,
     paymentMode: settled ? "total" : purchase.paymentMode,
-    installments: settled ? installments.map((item) => ({ ...item, paid: true })) : installments,
     payments: [...(purchase.payments ?? []), payment],
-  };
+  });
 }
