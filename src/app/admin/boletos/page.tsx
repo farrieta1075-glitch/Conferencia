@@ -43,18 +43,26 @@ export default function BoletosAdminPage() {
   const selected = state.purchases.find((item) => item.id === selectedId && !item.cancelled) ?? null;
 
   useEffect(() => {
-    if (!selected) {
+    const current = state.purchases.find((item) => item.id === selectedId && !item.cancelled) ?? null;
+    if (!current) {
       setDraft({});
+      setAmount(0);
+      setCancelId(null);
+      setCancelReason("");
+      if (!selectedId) {
+        setError("");
+        setMessage("");
+      }
       return;
     }
-    const hasEmail = Boolean(selected.customer.email) && selected.customer.email.trim().toLowerCase() !== NO_EMAIL;
-    const hasPhone = Boolean(selected.customer.phone) && selected.customer.phone.trim().toLowerCase() !== NO_PHONE;
+    const hasEmail = Boolean(current.customer.email) && current.customer.email.trim().toLowerCase() !== NO_EMAIL;
+    const hasPhone = Boolean(current.customer.phone) && current.customer.phone.trim().toLowerCase() !== NO_PHONE;
     setWithEmail(hasEmail);
     setWithPhone(hasPhone);
     setDraft({
-      phone: hasPhone ? selected.customer.phone : "",
-      email: hasEmail ? selected.customer.email : "",
-      tickets: selected.tickets.map((ticket) => ({
+      phone: hasPhone ? current.customer.phone : "",
+      email: hasEmail ? current.customer.email : "",
+      tickets: current.tickets.map((ticket) => ({
         id: ticket.id,
         holderName: ticket.holderName,
       })),
@@ -64,7 +72,9 @@ export default function BoletosAdminPage() {
     setCancelReason("");
     setError("");
     setMessage("");
-  }, [selectedId, selected]);
+    // selectedId is enough: after a save we keep the "Datos guardados" message.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -93,15 +103,16 @@ export default function BoletosAdminPage() {
     if (!selected) return;
     setBusy(true);
     setError("");
-    setMessage("");
+    setMessage("Guardando…");
     try {
       await updatePurchase(selected.id, {
         ...draft,
         phone: withPhone ? (draft.phone ?? "").trim() : NO_PHONE,
         email: withEmail ? (draft.email ?? "").trim() : NO_EMAIL,
       });
-      setMessage("Datos del boleto actualizados.");
+      setMessage("Datos guardados.");
     } catch (err) {
+      setMessage("");
       setError(err instanceof Error ? err.message : "No se pudo guardar");
     } finally {
       setBusy(false);
@@ -307,10 +318,15 @@ export default function BoletosAdminPage() {
                   );
                 })}
               </ul>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button type="button" className="btn-ghost w-fit" disabled={busy} onClick={() => void saveSelected()}>
-                  Guardar datos
+                  {busy && message === "Guardando…" ? "Guardando…" : "Guardar datos"}
                 </button>
+                {message ? (
+                  <p className={`text-sm ${message === "Guardando…" ? "text-ink-muted" : "text-available"}`}>
+                    {message}
+                  </p>
+                ) : null}
                 {canVoid && isNamelessBlock(selected) ? (
                   <button
                     type="button"
@@ -378,8 +394,8 @@ export default function BoletosAdminPage() {
                   <h4 className="mt-4 font-semibold">Plan de parcialidades</h4>
                   <table className="mt-2 w-full text-sm">
                     <tbody>
-                      {selected.installments.map((item) => (
-                        <tr key={item.index} className="border-t border-slate-200">
+                      {selected.installments.map((item, installmentIndex) => (
+                        <tr key={`${item.index}-${item.date}-${installmentIndex}`} className="border-t border-slate-200">
                           <td className="py-1">Pago {item.index}</td>
                           <td>{formatDate(item.date)}</td>
                           <td>{money(item.amount)}</td>

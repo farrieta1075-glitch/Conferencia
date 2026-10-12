@@ -55,7 +55,7 @@ export function MiniBarChart({
         const total = totals[index];
         return (
           <g
-            key={id}
+            key={`${id}-${index}`}
             className={onSelect ? "cursor-pointer" : undefined}
             onClick={(event) => {
               if (!onSelect) return;

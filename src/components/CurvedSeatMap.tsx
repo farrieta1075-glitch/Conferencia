@@ -177,7 +177,7 @@ export function CurvedSeatMap({
         const labelPoint = polarAtFraction(geometry, rowIndex, rows.length, 0);
         const labelOuter = polar(labelPoint.r, geometry.thetaStart - 0.045);
         return (
-          <g key={row.id}>
+          <g key={`${row.id}-${rowIndex}`}>
             <text
               x={labelOuter.x}
               y={labelOuter.y}
@@ -223,7 +223,7 @@ export function CurvedSeatMap({
               const accessible = row.accessibleSeats?.includes(slot.number);
               return (
                   <g
-                    key={id}
+                    key={`${id}-${slotIndex}`}
                     data-seat-id={id}
                     data-seat-status={status}
                     transform={`translate(${point.x} ${point.y}) rotate(${deg})`}

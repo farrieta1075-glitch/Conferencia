@@ -103,7 +103,7 @@ export default function AsientosAdminPage() {
               <div className="flex flex-wrap gap-1">
                 {area.sections.map((section) => (
                   <button
-                    key={section.id}
+                    key={`${area.id}-${section.id}`}
                     type="button"
                     className={`min-h-12 rounded-xl px-3 text-sm font-semibold ${
                       sectionId === section.id ? "bg-bronze text-white" : "bg-slate-100"
@@ -146,9 +146,9 @@ export default function AsientosAdminPage() {
             </button>
           </RoleGate>
           {located && canEdit
-            ? sortedRows(located.section.rows).map((row) => (
+            ? sortedRows(located.section.rows).map((row, rowIndex) => (
                 <button
-                  key={row.id}
+                  key={`${row.id}-${rowIndex}`}
                   type="button"
                   className="btn-ghost px-3"
                   onClick={() =>
