@@ -3,8 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { RoleGate } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
-import { formatDate, money } from "@/lib/format";
+import { formatDate, money, parseSeatId } from "@/lib/format";
 import { remainingBalance, type PurchasePatch } from "@/lib/purchases";
+import type { Purchase } from "@/lib/types";
+
+function firstHolder(purchase: Purchase) {
+  return purchase.tickets[0]?.holderName?.trim() || purchase.customer.email;
+}
+
+function seatSummary(purchase: Purchase) {
+  const zones = new Set<string>();
+  const seats = purchase.tickets.map((ticket) => {
+    const parsed = parseSeatId(ticket.seatId);
+    zones.add(parsed.sectionId);
+    return `${parsed.rowId}${parsed.number}`;
+  });
+  return { zones: [...zones].join(", "), seats: seats.join(", ") };
+}
 
 export default function BoletosAdminPage() {
   const { state, seatIndex, updatePurchase, applyPayment } = useEventStore();
@@ -44,10 +59,13 @@ export default function BoletosAdminPage() {
       const kind = remaining <= 0 ? "sold" : "held";
       if (filter !== "all" && filter !== kind) return false;
       if (!needle) return true;
+      const summary = seatSummary(purchase);
       const haystack = [
-        purchase.id,
         purchase.customer.email,
         purchase.customer.phone,
+        firstHolder(purchase),
+        summary.zones,
+        summary.seats,
         ...purchase.tickets.map((ticket) => `${ticket.holderName} ${ticket.seatId}`),
       ]
         .join(" ")
@@ -89,8 +107,8 @@ export default function BoletosAdminPage() {
 
   return (
     <div className="space-y-4">
-      <section className="card p-5">
-        <p className="text-xs uppercase tracking-wider text-bronze-dark">Módulo · Boletos</p>
+      <div>
+        <p className="text-[10px] uppercase tracking-wider text-bronze-dark">Boletos</p>
         <h2 className="font-display text-3xl">Vendidos y apartados</h2>
         <p className="mt-2 text-sm text-ink-muted">
           Edita titular y contacto, o completa pagos parciales y totales. Un apartado pasa a
@@ -99,7 +117,7 @@ export default function BoletosAdminPage() {
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
           <input
             className="field"
-            placeholder="Buscar por folio, titular, asiento, correo o teléfono"
+            placeholder="Buscar por titular, asiento, zona, correo o teléfono"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -116,15 +134,15 @@ export default function BoletosAdminPage() {
             ))}
           </div>
         </div>
-      </section>
+      </div>
 
       <section className="card overflow-x-auto p-5">
-        <table className="w-full min-w-[640px] text-left text-sm">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead>
             <tr className="text-ink-muted">
-              <th className="pb-2">Folio</th>
               <th className="pb-2">Contacto</th>
-              <th className="pb-2">Boletos</th>
+              <th className="pb-2">Zona</th>
+              <th className="pb-2">Asientos</th>
               <th className="pb-2">Pagado</th>
               <th className="pb-2">Saldo</th>
             </tr>
@@ -132,20 +150,19 @@ export default function BoletosAdminPage() {
           <tbody>
             {rows.map((purchase) => {
               const remaining = remainingBalance(purchase);
+              const summary = seatSummary(purchase);
               return (
                 <tr
                   key={purchase.id}
-                  className={`cursor-pointer border-t border-slate-200 ${
-                    selectedId === purchase.id ? "bg-bronze/10" : ""
-                  }`}
+                  className="cursor-pointer border-t border-slate-200 hover:bg-bronze/10"
                   onClick={() => setSelectedId(purchase.id)}
                 >
-                  <td className="py-2 font-medium">{purchase.id}</td>
-                  <td>
-                    {purchase.customer.email}
+                  <td className="py-2">
+                    <div className="font-medium">{firstHolder(purchase)}</div>
                     <div className="text-xs text-ink-muted">{purchase.customer.phone}</div>
                   </td>
-                  <td>{purchase.tickets.length}</td>
+                  <td>{summary.zones}</td>
+                  <td className="max-w-48 truncate">{summary.seats}</td>
                   <td>{money(purchase.paid)}</td>
                   <td className={remaining > 0 ? "font-semibold text-held" : "text-available"}>
                     {remaining > 0 ? money(remaining) : "Liquidado"}
@@ -165,121 +182,157 @@ export default function BoletosAdminPage() {
       </section>
 
       {selected && (
-        <section className="card grid gap-4 p-5">
-          <div>
-            <h3 className="font-display text-2xl">Detalle {selected.id}</h3>
-            <p className="text-sm text-ink-muted">
-              {formatDate(selected.createdAt)} · {selected.paymentMethod === "card" ? "Tarjeta" : "Efectivo"}
-            </p>
-          </div>
-          <RoleGate allow="tickets:edit">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-sm font-medium text-ink-muted">
-                Teléfono
-                <input
-                  className="field mt-1"
-                  value={draft.phone ?? ""}
-                  onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm font-medium text-ink-muted">
-                Correo
-                <input
-                  className="field mt-1"
-                  value={draft.email ?? ""}
-                  onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
-                />
-              </label>
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-navy/70 p-3 sm:items-center"
+          onClick={() => setSelectedId(null)}
+        >
+          <div
+            className="card grid max-h-[92dvh] w-full max-w-3xl gap-4 overflow-y-auto p-5"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-display text-2xl">Detalle de compra</h3>
+                <p className="text-sm text-ink-muted">
+                  {formatDate(selected.createdAt)} · {selected.paymentMethod === "card" ? "Tarjeta" : "Efectivo"}
+                </p>
+              </div>
+              <button type="button" className="btn-ghost" onClick={() => setSelectedId(null)}>
+                Cerrar
+              </button>
             </div>
-            <ul className="space-y-2">
-              {selected.tickets.map((ticket, index) => {
-                const seat = seatIndex.get(ticket.seatId);
-                return (
-                  <li key={ticket.id} className="rounded-2xl bg-surface p-3">
-                    <p className="text-xs text-ink-muted">
-                      {seat
-                        ? `${seat.areaName} · Zona ${seat.sectionName} · Fila ${seat.rowId} · Asiento ${seat.number}`
-                        : ticket.seatId}{" "}
-                      · {money(ticket.price)}
-                    </p>
-                    <input
-                      className="field mt-2"
-                      value={draft.tickets?.[index]?.holderName ?? ticket.holderName}
-                      onChange={(event) =>
-                        setDraft((current) => ({
-                          ...current,
-                          tickets: selected.tickets.map((item, i) => ({
-                            id: item.id,
-                            holderName:
-                              i === index
-                                ? event.target.value
-                                : (current.tickets?.[i]?.holderName ?? item.holderName),
-                          })),
-                        }))
-                      }
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-            <button type="button" className="btn-ghost w-fit" disabled={busy} onClick={() => void saveSelected()}>
-              Guardar datos
-            </button>
-          </RoleGate>
-
-          <div className="rounded-2xl bg-surface p-4">
-            <h4 className="font-semibold">Pagos</h4>
-            <p className="text-sm text-ink-muted">
-              Saldo {money(remainingBalance(selected))} de {money(selected.total)}
-            </p>
-            {selected.installments.length > 0 && (
-              <table className="mt-3 w-full text-sm">
-                <tbody>
-                  {selected.installments.map((item) => (
-                    <tr key={item.index} className="border-t border-slate-200">
-                      <td className="py-1">Pago {item.index}</td>
-                      <td>{formatDate(item.date)}</td>
-                      <td>{money(item.amount)}</td>
-                      <td>{item.paid ? "Pagado" : "Pendiente"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <RoleGate allow="payments:complete">
-              {remainingBalance(selected) > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
+            <RoleGate allow="tickets:edit">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm font-medium text-ink-muted">
+                  Teléfono
                   <input
-                    className="field max-w-40"
-                    type="number"
-                    min={0}
-                    value={amount || ""}
-                    onChange={(event) => setAmount(Number(event.target.value))}
-                    placeholder="Abono"
+                    className="field mt-1"
+                    value={draft.phone ?? ""}
+                    onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))}
                   />
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    disabled={busy}
-                    onClick={() => void pay(false)}
-                  >
-                    Registrar abono
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={busy}
-                    onClick={() => void pay(true)}
-                  >
-                    Liquidar saldo
-                  </button>
-                </div>
-              )}
+                </label>
+                <label className="text-sm font-medium text-ink-muted">
+                  Correo
+                  <input
+                    className="field mt-1"
+                    value={draft.email ?? ""}
+                    onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <ul className="space-y-2">
+                {selected.tickets.map((ticket, index) => {
+                  const seat = seatIndex.get(ticket.seatId);
+                  return (
+                    <li key={ticket.id} className="rounded-2xl bg-surface p-3">
+                      <p className="text-xs text-ink-muted">
+                        {seat
+                          ? `${seat.areaName} · Zona ${seat.sectionName} · Fila ${seat.rowId} · Asiento ${seat.number}`
+                          : ticket.seatId}{" "}
+                        · {money(ticket.price)}
+                      </p>
+                      <input
+                        className="field mt-2"
+                        value={draft.tickets?.[index]?.holderName ?? ticket.holderName}
+                        onChange={(event) =>
+                          setDraft((current) => ({
+                            ...current,
+                            tickets: selected.tickets.map((item, i) => ({
+                              id: item.id,
+                              holderName:
+                                i === index
+                                  ? event.target.value
+                                  : (current.tickets?.[i]?.holderName ?? item.holderName),
+                            })),
+                          }))
+                        }
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+              <button type="button" className="btn-ghost w-fit" disabled={busy} onClick={() => void saveSelected()}>
+                Guardar datos
+              </button>
             </RoleGate>
+
+            <div className="rounded-2xl bg-surface p-4">
+              <h4 className="font-semibold">Pagos realizados</h4>
+              <p className="text-sm text-ink-muted">
+                Saldo {money(remainingBalance(selected))} de {money(selected.total)}
+              </p>
+              {(selected.payments ?? []).length > 0 && (
+                <table className="mt-3 w-full text-sm">
+                  <thead>
+                    <tr className="text-ink-muted">
+                      <th className="pb-1 text-left">Fecha</th>
+                      <th className="pb-1 text-left">Monto</th>
+                      <th className="pb-1 text-left">Método</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selected.payments?.map((item) => (
+                      <tr key={item.id} className="border-t border-slate-200">
+                        <td className="py-1">{formatDate(item.date)}</td>
+                        <td>{money(item.amount)}</td>
+                        <td>{item.method === "card" ? "Tarjeta" : "Efectivo"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {selected.installments.length > 0 && (
+                <>
+                  <h4 className="mt-4 font-semibold">Plan de parcialidades</h4>
+                  <table className="mt-2 w-full text-sm">
+                    <tbody>
+                      {selected.installments.map((item) => (
+                        <tr key={item.index} className="border-t border-slate-200">
+                          <td className="py-1">Pago {item.index}</td>
+                          <td>{formatDate(item.date)}</td>
+                          <td>{money(item.amount)}</td>
+                          <td>{item.paid ? "Pagado" : "Pendiente"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+              <RoleGate allow="payments:complete">
+                {remainingBalance(selected) > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <input
+                      className="field max-w-40"
+                      type="number"
+                      min={0}
+                      value={amount || ""}
+                      onChange={(event) => setAmount(Number(event.target.value))}
+                      placeholder="Abono"
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={busy}
+                      onClick={() => void pay(false)}
+                    >
+                      Registrar abono
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={busy}
+                      onClick={() => void pay(true)}
+                    >
+                      Liquidar saldo
+                    </button>
+                  </div>
+                )}
+              </RoleGate>
+            </div>
+            {message && <p className="text-sm text-available">{message}</p>}
+            {error && <p className="text-sm text-sold">{error}</p>}
           </div>
-          {message && <p className="text-sm text-available">{message}</p>}
-          {error && <p className="text-sm text-sold">{error}</p>}
-        </section>
+        </div>
       )}
     </div>
   );

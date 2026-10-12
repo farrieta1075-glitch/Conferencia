@@ -1,5 +1,7 @@
 import { AREA_LABELS, AREA_ORDER, DEFAULT_PRICES } from "@/lib/constants";
-import { getSheets, getSpreadsheetId, sheetsConfigured } from "@/lib/sheets/client";
+import { DEFAULT_CAMPUS, type DataCampus } from "@/lib/campus";
+import { filterCampusRows } from "@/lib/sheets/campusRows";
+import { ensureTabs, getSheets, getSpreadsheetId, sheetsConfigured } from "@/lib/sheets/client";
 import { canonicalizeSectionId } from "@/lib/tabulador/ids";
 import { inferAreaFromSection, rehomeSectionsByNumber, resolveAreaId } from "@/lib/tabulador/xlsx";
 import { looksLikeSeatLayout, seatsFromSlots, tokenizeSeatLayout } from "@/lib/tabulador/seats";
@@ -11,6 +13,7 @@ import type {
   PaymentMode,
   PersistedState,
   Promotion,
+  PaymentRecord,
   Purchase,
   SeatStatus,
   VenueTabulador,
@@ -135,9 +138,12 @@ function buildPurchases(
   sales: string[][],
   tickets: string[][],
   installments: string[][],
+  payments: string[][],
+  campus: DataCampus,
 ): Purchase[] {
   const ticketRows = tickets.slice(1).filter((row) => row[0]);
   const installmentRows = installments.slice(1).filter((row) => row[0]);
+  const paymentRows = payments.slice(1).filter((row) => row[0]);
   const purchases: Purchase[] = [];
 
   for (const row of sales.slice(1)) {
@@ -156,9 +162,31 @@ function buildPurchases(
     const paymentMethod: PaymentMethod = paymentMethodRaw === "cash" ? "cash" : "card";
     const total = Number(totalRaw) || 0;
     const paid = Number(paidRaw) || 0;
+    const logged: PaymentRecord[] = paymentRows
+      .filter((item) => item[0] === id)
+      .map((item) => ({
+        id: item[1] || `pay-${id}-${item[2]}`,
+        date: item[2],
+        amount: Number(item[3]) || 0,
+        method: item[4] === "cash" ? "cash" : "card",
+      }));
+    const paymentsForPurchase =
+      logged.length > 0
+        ? logged
+        : paid > 0
+          ? [
+              {
+                id: `pay-${id}-inicial`,
+                date: createdAt || new Date().toISOString(),
+                amount: paid,
+                method: paymentMethod,
+              },
+            ]
+          : [];
     purchases.push({
       id,
       createdAt: createdAt || new Date().toISOString(),
+      campus,
       customer: { email: email || "", phone: phone || "" },
       paymentMode,
       paymentMethod,
@@ -183,6 +211,7 @@ function buildPurchases(
           amount: Number(item[3]) || 0,
           paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
         })),
+      payments: paymentsForPurchase,
       reminders: [],
     });
   }
@@ -190,10 +219,13 @@ function buildPurchases(
   return purchases;
 }
 
-export async function loadStateFromSheets(): Promise<PersistedState | null> {
+export async function loadStateFromSheets(
+  campus: DataCampus = DEFAULT_CAMPUS,
+): Promise<PersistedState | null> {
   if (!sheetsConfigured()) return null;
   const spreadsheetId = await getSpreadsheetId();
   if (!spreadsheetId) return null;
+  await ensureTabs(spreadsheetId);
 
   const [
     evento,
@@ -204,33 +236,38 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
     ventas,
     boletos,
     parcialidades,
+    pagos,
   ] = await readRanges(spreadsheetId, [
-    "Evento!A1:D10",
-    "Tabulador!A1:E",
-    "Disponibilidad!A1:B",
-    "Precios!A1:B",
-    "Promociones!A1:F",
-    "Ventas!A1:J",
-    "Boletos!A1:F",
-    "Parcialidades!A1:E",
+    "Evento!A1:E",
+    "Tabulador!A1:F",
+    "Disponibilidad!A1:C",
+    "Precios!A1:C",
+    "Promociones!A1:G",
+    "Ventas!A1:K",
+    "Boletos!A1:G",
+    "Parcialidades!A1:F",
+    "Pagos!A1:F",
   ]);
 
-  const eventoData = evento[1] ?? [];
+  const eventoRows = filterCampusRows(evento, 4, campus);
+  const eventoData = eventoRows[1] ?? [];
   const eventName = eventoData[0] || "";
   const eventDatetime = eventoData[1] || "";
   const officialCapacity = Number(eventoData[2]) || 0;
   const version = eventoData[3] || "sheets";
-  const tabuladorRaw = buildTabulador(tabuladorRows, officialCapacity, version);
+  const tabuladorRaw = buildTabulador(filterCampusRows(tabuladorRows, 5, campus), officialCapacity, version);
   const tabulador = tabuladorRaw ? rehomeSectionsByNumber(tabuladorRaw) : null;
 
   const hasEvent = Boolean(eventName && eventDatetime);
   const hasTabulador = Boolean(tabulador);
-  const hasSales = ventas.length > 1;
-  const hasStatus = disponibilidad.length > 1;
+  const ventasCampus = filterCampusRows(ventas, 10, campus);
+  const disponibilidadCampus = filterCampusRows(disponibilidad, 2, campus);
+  const hasSales = ventasCampus.length > 1;
+  const hasStatus = disponibilidadCampus.length > 1;
   if (!hasEvent && !hasTabulador && !hasSales && !hasStatus) return null;
 
   const seatStatus: Record<string, SeatStatus> = {};
-  for (const [id, statusRaw] of disponibilidad.slice(1)) {
+  for (const [id, statusRaw] of disponibilidadCampus.slice(1)) {
     const status = parseSeatStatus(statusRaw);
     if (id && status) seatStatus[id] = status;
   }
@@ -239,7 +276,7 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
     areaId,
     basePrice: DEFAULT_PRICES[areaId],
   }));
-  for (const [areaRaw, priceRaw] of precios.slice(1)) {
+  for (const [areaRaw, priceRaw] of filterCampusRows(precios, 2, campus).slice(1)) {
     const areaId = parseAreaId(areaRaw);
     if (!areaId) continue;
     const basePrice = Number(priceRaw);
@@ -248,7 +285,7 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
     if (current) current.basePrice = basePrice;
   }
 
-  const promotions: Promotion[] = promociones
+  const promotions: Promotion[] = filterCampusRows(promociones, 6, campus)
     .slice(1)
     .filter((row) => row[0] && row[1])
     .map((row) => ({
@@ -278,16 +315,23 @@ export async function loadStateFromSheets(): Promise<PersistedState | null> {
     seatStatus,
     prices,
     promotions,
-    purchases: buildPurchases(ventas, boletos, parcialidades),
+    purchases: buildPurchases(
+      ventasCampus,
+      filterCampusRows(boletos, 6, campus),
+      filterCampusRows(parcialidades, 5, campus),
+      filterCampusRows(pagos, 5, campus),
+      campus,
+    ),
   };
 }
 
 export async function readSeatStatusFromSheets(
   spreadsheetId: string,
+  campus: DataCampus = DEFAULT_CAMPUS,
 ): Promise<Record<string, SeatStatus>> {
-  const [disponibilidad] = await readRanges(spreadsheetId, ["Disponibilidad!A1:B"]);
+  const [disponibilidad] = await readRanges(spreadsheetId, ["Disponibilidad!A1:C"]);
   const seatStatus: Record<string, SeatStatus> = {};
-  for (const [id, statusRaw] of disponibilidad.slice(1)) {
+  for (const [id, statusRaw] of filterCampusRows(disponibilidad, 2, campus).slice(1)) {
     const status = parseSeatStatus(statusRaw);
     if (id && status) seatStatus[id] = status;
   }

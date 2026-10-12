@@ -113,12 +113,12 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
   const previewMessage = `Recordatorio de pago para ${state.event.name}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/70 p-3 sm:items-center">
-      <div className="card max-h-[92dvh] w-full max-w-3xl overflow-y-auto p-5">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/70 p-2 sm:items-center sm:p-3 max-[1100px]:landscape:items-center">
+      <div className="card max-h-[92dvh] w-full max-w-3xl overflow-y-auto p-4 sm:p-5 max-[1100px]:landscape:max-h-[96dvh] max-[1100px]:landscape:p-3">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-wider text-bronze-dark">Registro de compra</p>
-            <h2 className="font-display text-3xl text-ink">Boletos seleccionados</h2>
+            <h2 className="font-display text-2xl text-ink sm:text-3xl">Boletos seleccionados</h2>
           </div>
           <button type="button" className="btn-ghost" onClick={onClose}>
             Cerrar

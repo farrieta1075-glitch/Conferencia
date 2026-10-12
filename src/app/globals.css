@@ -20,8 +20,13 @@
 html,
 body {
   min-height: 100%;
+  min-height: 100dvh;
   background: #0b132b;
   color: #0f172a;
+}
+
+html {
+  overflow-x: hidden;
 }
 
 body {

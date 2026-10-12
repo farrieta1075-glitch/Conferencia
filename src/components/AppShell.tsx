@@ -36,15 +36,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={
             isSales
               ? "mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden lg:flex-row"
-              : "mx-auto flex min-h-[calc(100dvh-7rem)] max-w-7xl flex-col lg:flex-row"
+              : "mx-auto flex min-h-[calc(100dvh-7rem)] max-w-7xl flex-col lg:flex-row max-[1100px]:landscape:min-h-[calc(100dvh-4.5rem)]"
           }
         >
           <Nav />
           <main
             className={
               isSales
-                ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-surface p-2 pb-[4.25rem] lg:p-4 lg:pb-4"
-                : "flex-1 bg-surface p-3 pb-24 lg:p-6 lg:pb-8 max-[1100px]:landscape:p-2 max-[1100px]:landscape:pb-20"
+                ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-surface p-1.5 pb-[calc(4.1rem+env(safe-area-inset-bottom))] sm:p-2 lg:p-4 lg:pb-4 max-[1100px]:landscape:p-1 max-[1100px]:landscape:pb-[calc(3.35rem+env(safe-area-inset-bottom))]"
+                : "flex-1 bg-surface p-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:p-6 lg:pb-8 max-[1100px]:landscape:p-2 max-[1100px]:landscape:pb-[calc(4.5rem+env(safe-area-inset-bottom))]"
             }
           >
             {isSales ? <div className="flex min-h-0 flex-1 flex-col">{children}</div> : children}

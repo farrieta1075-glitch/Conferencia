@@ -9,8 +9,8 @@ export interface Transform {
   k: number;
 }
 
-const MIN_K = 0.55;
-const MAX_K = 10;
+const MIN_K = 0.45;
+const MAX_K = 48;
 const DRAG_THRESHOLD = 8;
 const IDENTITY: Transform = { x: 0, y: 0, k: 1 };
 

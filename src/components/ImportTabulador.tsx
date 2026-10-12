@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
 import { RoleGate } from "@/components/auth/RoleGate";
 import { TABULADOR_JSON_EXAMPLE } from "@/lib/tabulador/generator";
@@ -19,6 +20,7 @@ function isExcelFile(file: File): boolean {
 
 export function ImportTabulador() {
   const { state, importTabulador, tabuladorCount } = useEventStore();
+  const { campus } = useCampus();
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [resetAssignments, setResetAssignments] = useState(false);
@@ -61,8 +63,8 @@ export function ImportTabulador() {
         Carga un JSON o un Excel (.xlsx) con Orden, Área, Sección, Fila y Asiento. El orden 1
         queda abajo (hacia el escenario) y sube hasta n. En Asiento puedes marcar pasillos{" "}
         <code>- P1-</code> / <code>- P2-</code>, huecos <code>- C -</code> y columnas vacías{" "}
-        <code>- E -</code>. Asientos en tabulador: {tabuladorCount}. Capacidad oficial:{" "}
-        {state.tabulador.officialCapacity}.
+        <code>- E -</code>.         Asientos en tabulador: {tabuladorCount}. Capacidad oficial:{" "}
+        {state.tabulador.officialCapacity}. Esta carga queda en el campus {campus}.
       </p>
       <RoleGate
         allow="tabulador:import"

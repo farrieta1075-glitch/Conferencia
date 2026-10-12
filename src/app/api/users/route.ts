@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { jsonError, requirePermission } from "@/lib/auth/api";
 import { createUser, listUsers, publicUser } from "@/lib/auth/users";
 import { parseRole } from "@/lib/auth/roles";
+import { parseCampus } from "@/lib/campus";
 
 export async function GET() {
   try {
@@ -21,16 +22,19 @@ export async function POST(request: Request) {
       name?: string;
       password?: string;
       role?: string;
+      campus?: string;
     };
     const role = parseRole(body.role);
-    if (!body.email || !body.password || !role) {
-      return NextResponse.json({ error: "Correo, contraseña y rol son obligatorios" }, { status: 400 });
+    const campus = parseCampus(body.campus);
+    if (!body.email || !body.password || !role || !campus) {
+      return NextResponse.json({ error: "Correo, contraseña, rol y campus son obligatorios" }, { status: 400 });
     }
     const user = await createUser({
       email: body.email,
       name: body.name,
       password: body.password,
       role,
+      campus,
     });
     return NextResponse.json({ ok: true, user: publicUser(user) });
   } catch (error) {

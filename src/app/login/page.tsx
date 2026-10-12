@@ -68,7 +68,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-navy p-4">
+    <div className="flex min-h-dvh items-center justify-center bg-navy p-4 max-[1100px]:landscape:py-3">
       <Suspense fallback={<div className="card h-64 w-full max-w-md" />}>
         <LoginForm />
       </Suspense>

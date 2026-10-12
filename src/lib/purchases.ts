@@ -1,5 +1,5 @@
 import { roundMoney } from "@/lib/format";
-import type { Purchase, SeatStatus } from "@/lib/types";
+import type { PaymentRecord, Purchase, SeatStatus } from "@/lib/types";
 
 export interface PurchasePatch {
   phone?: string;
@@ -9,6 +9,10 @@ export interface PurchasePatch {
 
 export function remainingBalance(purchase: Purchase): number {
   return roundMoney(Math.max(0, purchase.total - purchase.paid));
+}
+
+export function findPurchaseBySeat(purchases: Purchase[], seatId: string): Purchase | undefined {
+  return purchases.find((purchase) => purchase.tickets.some((ticket) => ticket.seatId === seatId));
 }
 
 export function purchaseSeatStatus(purchase: Purchase): SeatStatus {
@@ -54,10 +58,17 @@ export function applyPurchasePayment(
 
   const paid = roundMoney(purchase.paid + add);
   const settled = paid >= purchase.total - 0.009;
+  const payment: PaymentRecord = {
+    id: `pay-${Date.now()}`,
+    date: new Date().toISOString(),
+    amount: add,
+    method: purchase.paymentMethod,
+  };
   return {
     ...purchase,
     paid: settled ? purchase.total : paid,
     paymentMode: settled ? "total" : purchase.paymentMode,
     installments: settled ? installments.map((item) => ({ ...item, paid: true })) : installments,
+    payments: [...(purchase.payments ?? []), payment],
   };
 }

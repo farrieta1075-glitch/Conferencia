@@ -85,6 +85,13 @@ export interface Installment {
   paid: boolean;
 }
 
+export interface PaymentRecord {
+  id: string;
+  date: string;
+  amount: number;
+  method: PaymentMethod;
+}
+
 export interface ReminderJob {
   id: string;
   channel: "whatsapp" | "email";
@@ -107,6 +114,7 @@ export interface Ticket {
 export interface Purchase {
   id: string;
   createdAt: string;
+  campus?: string;
   customer: {
     phone: string;
     email: string;
@@ -119,6 +127,7 @@ export interface Purchase {
   paid: number;
   selectedPlan?: InstallmentCount;
   installments: Installment[];
+  payments?: PaymentRecord[];
   reminders: ReminderJob[];
 }
 

@@ -1,6 +1,6 @@
 import type { AreaId } from "./types";
 
-export const STORAGE_KEY = "auditorio-nacional-boletos-v7";
+export const STORAGE_KEY = "auditorio-nacional-boletos-v8";
 
 export const COLORS = {
   navy: "#0B132B",
@@ -34,6 +34,14 @@ export const AREA_LABELS: Record<AreaId, string> = {
   balcon: "Balcón",
   "primer-piso": "Primer piso",
   "segundo-piso": "Segundo piso",
+};
+
+export const AREA_SHORT_LABELS: Record<AreaId, string> = {
+  preferente: "Preferente",
+  luneta: "Luneta",
+  balcon: "Balcón",
+  "primer-piso": "Piso1",
+  "segundo-piso": "Piso2",
 };
 
 export const DEFAULT_PRICES: Record<AreaId, number> = {

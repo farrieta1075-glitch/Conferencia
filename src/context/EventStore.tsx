@@ -13,6 +13,7 @@ import {
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
 import { persistsToSheets } from "@/lib/auth/roles";
+import { useCampus } from "@/context/CampusContext";
 import { AREA_ORDER, DEFAULT_PRICES, STORAGE_KEY } from "@/lib/constants";
 import { buildInstallmentPlans } from "@/lib/installments";
 import { notificationHooks } from "@/lib/notifications";
@@ -140,6 +141,17 @@ export async function buildPurchase(
   const purchase: Purchase = {
     id: `buy-${Date.now()}`,
     createdAt: new Date().toISOString(),
+    payments:
+      deposit > 0
+        ? [
+            {
+              id: `pay-${Date.now()}`,
+              date: new Date().toISOString(),
+              amount: deposit,
+              method: payload.paymentMethod,
+            },
+          ]
+        : [],
     customer: { phone: payload.phone, email: payload.email },
     paymentMode: payload.paymentMode,
     paymentMethod: payload.paymentMethod,
@@ -266,6 +278,7 @@ function reducer(state: PersistedState, action: Action): PersistedState {
 }
 
 async function syncSheets(delta: {
+  campus?: string;
   event?: PersistedState["event"];
   officialCapacity?: number;
   version?: string;
@@ -281,7 +294,7 @@ async function syncSheets(delta: {
   try {
     await apiFetch("/api/sheets", {
       method: "POST",
-      body: JSON.stringify({ delta }),
+      body: JSON.stringify({ delta: { ...delta, campus: delta.campus } }),
     });
   } catch {
     // VIEWER no tiene sheets:sync; si falta el ID de la hoja, tampoco bloqueamos la venta.
@@ -382,6 +395,9 @@ const StoreContext = createContext<StoreValue | null>(null);
 
 export function EventStoreProvider({ children }: { children: ReactNode }) {
   const { status, data: session } = useSession();
+  const { campus } = useCampus();
+  const campusRef = useRef(campus);
+  campusRef.current = campus;
   const [state, dispatch] = useReducer(reducer, undefined, createDefaultState);
   const [hydrated, setHydrated] = useReducer((_: boolean, value: boolean) => value, false);
   const [remoteReady, setRemoteReady] = useReducer((_: boolean, value: boolean) => value, false);
@@ -402,6 +418,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
     syncChain = syncChain
       .then(() =>
         syncSheets({
+          campus: campusRef.current,
           event: pending.event ? snapshot.event : undefined,
           officialCapacity: pending.event ? snapshot.tabulador.officialCapacity : undefined,
           version: pending.event ? snapshot.tabulador.version : undefined,
@@ -428,9 +445,27 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
     }, 700);
   }
 
+  useEffect(() => {
+    sheetsReady.current = false;
+    pendingSheets = emptyPending();
+    try {
+      const raw = localStorage.getItem(`${STORAGE_KEY}-${campus}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PersistedState;
+        if (parsed?.tabulador?.areas?.length) {
+          dispatch({ type: "hydrate", state: withCanonicalAreas(parsed) });
+          return;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    dispatch({ type: "hydrate", state: createDefaultState() });
+  }, [campus]);
+
   useLayoutEffect(() => {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem(`${STORAGE_KEY}-${campusRef.current}`);
       if (raw) {
         const parsed = JSON.parse(raw) as PersistedState;
         if (parsed?.tabulador?.areas?.length) {
@@ -453,14 +488,12 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       }
       return;
     }
-    if (startedRemote.current) return;
-    startedRemote.current = true;
     let cancelled = false;
 
     async function hydrateFromSheets(attempt = 0): Promise<void> {
       if (cancelled) return;
       const payload = await apiFetch<{ state?: PersistedState | null; hydrateError?: string }>(
-        "/api/sheets?hydrate=1",
+        `/api/sheets?hydrate=1&campus=${encodeURIComponent(campusRef.current)}`,
       );
       if (cancelled) return;
       if (payload.hydrateError) {
@@ -503,18 +536,18 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [status]);
+  }, [status, campus]);
 
   useEffect(() => {
     if (!hydrated) return;
     if (status === "authenticated" && !sheetsReady.current) return;
     if (!canSyncRef.current) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      localStorage.setItem(`${STORAGE_KEY}-${campus}`, JSON.stringify(state));
     } catch (error) {
       console.warn("No se pudo guardar localStorage", error);
     }
-  }, [state, hydrated, remoteReady, status]);
+  }, [state, hydrated, remoteReady, status, campus]);
 
   useEffect(() => {
     return () => window.clearTimeout(syncTimer.current);
@@ -552,6 +585,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         sheetsReady.current = true;
         if (canSyncRef.current) {
           await syncSheets({
+            campus: campusRef.current,
             event: stateRef.current.event,
             officialCapacity: canonical.officialCapacity,
             version: canonical.version,
@@ -584,7 +618,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         await apiFetch(`/api/promotions?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       },
       buy: async (payload) => {
-        const purchase = await buildPurchase(state, payload);
+        const purchase = {
+          ...(await buildPurchase(state, payload)),
+          campus: campusRef.current,
+        };
         await apiFetch("/api/purchases", { method: "POST", body: JSON.stringify(purchase) });
         dispatch({ type: "buy", purchase });
         const status = purchaseSeatStatus(purchase);
@@ -630,6 +667,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         sheetsReady.current = true;
         if (canSyncRef.current) {
           await syncSheets({
+            campus: campusRef.current,
             seatStatus: next,
             forceSeatStatus: true,
           });
@@ -645,7 +683,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           state?: PersistedState | null;
           hydrateError?: string;
           ready?: boolean;
-        }>("/api/sheets?hydrate=1");
+        }>(`/api/sheets?hydrate=1&campus=${encodeURIComponent(campusRef.current)}`);
         if (payload.hydrateError) throw new Error(payload.hydrateError);
         if (!payload.state) {
           throw new Error(

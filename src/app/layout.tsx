@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, DM_Sans } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
 import { AuthSessionProvider } from "@/components/auth/AuthSessionProvider";
+import { CampusProvider } from "@/context/CampusContext";
 import { EventStoreProvider } from "@/context/EventStore";
 import "./globals.css";
 
@@ -43,9 +44,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es">
       <body className={`${dmSans.variable} ${dmSans.className} ${cormorant.variable} antialiased`}>
         <AuthSessionProvider>
-          <EventStoreProvider>
-            <AppShell>{children}</AppShell>
-          </EventStoreProvider>
+          <CampusProvider>
+            <EventStoreProvider>
+              <AppShell>{children}</AppShell>
+            </EventStoreProvider>
+          </CampusProvider>
         </AuthSessionProvider>
       </body>
     </html>

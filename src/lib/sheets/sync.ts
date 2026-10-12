@@ -7,9 +7,11 @@ import type {
   SeatStatus,
   VenueTabulador,
 } from "@/lib/types";
+import { DEFAULT_CAMPUS, type DataCampus } from "@/lib/campus";
 import { remainingBalance } from "@/lib/purchases";
 import { listUsers } from "@/lib/auth/users";
 import { writeUsersToSheets } from "@/lib/sheets/users";
+import { keepOtherCampusRows, readTab, withCampus } from "@/lib/sheets/campusRows";
 import { rowSlots, serializeSeatLayout } from "@/lib/tabulador/seats";
 import { readSeatStatusFromSheets } from "@/lib/sheets/load";
 import {
@@ -32,6 +34,7 @@ export interface SheetsDelta {
   seatStatus?: Record<string, SeatStatus>;
   writeUsers?: boolean;
   forceSeatStatus?: boolean;
+  campus?: DataCampus;
 }
 
 function rows(values: (string | number)[][]) {
@@ -75,55 +78,63 @@ async function replaceTab(
   });
 }
 
-function disponibilidadValues(seatStatus: Record<string, SeatStatus>) {
-  return [
-    ["asiento_id", "estatus"],
-    ...Object.entries(seatStatus),
-  ];
+async function mergeCampusTab(
+  spreadsheetId: string,
+  tab: string,
+  headers: string[],
+  campus: DataCampus,
+  dataRows: (string | number)[][],
+  protectIfShrunk = false,
+) {
+  const campusIndex = headers.length - 1;
+  const existing = await readTab(spreadsheetId, `${tab}!A1:Z`);
+  const others = keepOtherCampusRows(existing, campusIndex, campus);
+  const values = [headers, ...others, ...dataRows.map((row) => withCampus(row, campus))];
+  await replaceTab(spreadsheetId, tab, values, protectIfShrunk);
 }
 
 function purchaseSheets(purchases: Purchase[]) {
   return {
-    ventas: [
-      ["id", "fecha", "correo", "telefono", "modalidad", "metodo", "total", "pagado", "saldo", "boletos"],
-      ...purchases.map((purchase) => [
+    ventas: purchases.map((purchase) => [
+      purchase.id,
+      purchase.createdAt,
+      purchase.customer.email,
+      purchase.customer.phone,
+      purchase.paymentMode,
+      purchase.paymentMethod,
+      purchase.total,
+      purchase.paid,
+      remainingBalance(purchase),
+      purchase.tickets.length,
+    ]),
+    boletos: purchases.flatMap((purchase) =>
+      purchase.tickets.map((ticket) => [
         purchase.id,
-        purchase.createdAt,
-        purchase.customer.email,
-        purchase.customer.phone,
-        purchase.paymentMode,
-        purchase.paymentMethod,
-        purchase.total,
-        purchase.paid,
-        remainingBalance(purchase),
-        purchase.tickets.length,
+        ticket.id,
+        ticket.seatId,
+        ticket.holderName,
+        ticket.price,
+        ticket.promotionName ?? "",
       ]),
-    ],
-    boletos: [
-      ["compra_id", "boleto_id", "asiento_id", "titular", "precio", "promocion"],
-      ...purchases.flatMap((purchase) =>
-        purchase.tickets.map((ticket) => [
-          purchase.id,
-          ticket.id,
-          ticket.seatId,
-          ticket.holderName,
-          ticket.price,
-          ticket.promotionName ?? "",
-        ]),
-      ),
-    ],
-    parcialidades: [
-      ["compra_id", "indice", "fecha", "monto", "pagado"],
-      ...purchases.flatMap((purchase) =>
-        purchase.installments.map((item) => [
-          purchase.id,
-          item.index,
-          item.date,
-          item.amount,
-          item.paid ? "si" : "no",
-        ]),
-      ),
-    ],
+    ),
+    parcialidades: purchases.flatMap((purchase) =>
+      purchase.installments.map((item) => [
+        purchase.id,
+        item.index,
+        item.date,
+        item.amount,
+        item.paid ? "si" : "no",
+      ]),
+    ),
+    pagos: purchases.flatMap((purchase) =>
+      (purchase.payments ?? []).map((item) => [
+        purchase.id,
+        item.id,
+        item.date,
+        item.amount,
+        item.method,
+      ]),
+    ),
   };
 }
 
@@ -137,10 +148,10 @@ export async function applySheetsDelta(delta: SheetsDelta) {
   }
 
   await ensureTabs(spreadsheetId);
+  const campus = delta.campus ?? DEFAULT_CAMPUS;
 
   if (delta.event) {
-    await replaceTab(spreadsheetId, "Evento", [
-      ["nombre", "fecha", "capacidad_oficial", "version_tabulador"],
+    await mergeCampusTab(spreadsheetId, "Evento", ["nombre", "fecha", "capacidad_oficial", "version_tabulador", "campus"], campus, [
       [
         delta.event.name,
         delta.event.datetime,
@@ -151,24 +162,32 @@ export async function applySheetsDelta(delta: SheetsDelta) {
   }
 
   if (delta.prices) {
-    await replaceTab(spreadsheetId, "Precios", [
-      ["area", "precio_base"],
-      ...delta.prices.map((item) => [item.areaId, item.basePrice]),
-    ]);
+    await mergeCampusTab(
+      spreadsheetId,
+      "Precios",
+      ["area", "precio_base", "campus"],
+      campus,
+      delta.prices.map((item) => [item.areaId, item.basePrice]),
+    );
   }
 
   if (delta.writeTabulador && delta.tabulador) {
-    const existing = await rowCount(spreadsheetId, "Tabulador");
+    const existing = await readTab(spreadsheetId, "Tabulador!A1:Z");
+    const others = keepOtherCampusRows(existing, 5, campus);
+    const ownCount = Math.max(0, existing.slice(1).length - others.length);
     const looksDefault =
       delta.tabulador.version === "2.0.0" || delta.tabulador.officialCapacity === 9564;
-    if (looksDefault && existing > 500) {
+    if (looksDefault && ownCount > 500) {
       throw new Error(
-        `Se protegió el tabulador de Google Sheets (${existing} filas). No se reemplaza con el recinto por defecto.`,
+        `Se protegió el tabulador de Google Sheets (${ownCount} filas de ${campus}). No se reemplaza con el recinto por defecto.`,
       );
     }
-    await replaceTab(spreadsheetId, "Tabulador", [
-      ["area", "seccion", "fila", "asientos", "orden"],
-      ...delta.tabulador.areas.flatMap((area) =>
+    await mergeCampusTab(
+      spreadsheetId,
+      "Tabulador",
+      ["area", "seccion", "fila", "asientos", "orden", "campus"],
+      campus,
+      delta.tabulador.areas.flatMap((area) =>
         area.sections.flatMap((section) =>
           section.rows.map((row) => [
             area.id,
@@ -179,29 +198,41 @@ export async function applySheetsDelta(delta: SheetsDelta) {
           ]),
         ),
       ),
-    ]);
+    );
   }
 
   if (delta.seatStatus) {
-    await replaceTab(
+    await mergeCampusTab(
       spreadsheetId,
       "Disponibilidad",
-      disponibilidadValues(delta.seatStatus),
+      ["asiento_id", "estatus", "campus"],
+      campus,
+      Object.entries(delta.seatStatus),
       !delta.forceSeatStatus,
     );
   } else if (delta.seatPatch && Object.keys(delta.seatPatch).length) {
-    const current = await readSeatStatusFromSheets(spreadsheetId);
+    const current = await readSeatStatusFromSheets(spreadsheetId, campus);
     for (const [id, status] of Object.entries(delta.seatPatch)) {
       if (status === "unassigned") delete current[id];
       else current[id] = status;
     }
-    await replaceTab(spreadsheetId, "Disponibilidad", disponibilidadValues(current), true);
+    await mergeCampusTab(
+      spreadsheetId,
+      "Disponibilidad",
+      ["asiento_id", "estatus", "campus"],
+      campus,
+      Object.entries(current),
+      true,
+    );
   }
 
   if (delta.promotions) {
-    await replaceTab(spreadsheetId, "Promociones", [
-      ["id", "nombre", "zonas", "tipo", "valor", "vigencia"],
-      ...delta.promotions.map((promo) => [
+    await mergeCampusTab(
+      spreadsheetId,
+      "Promociones",
+      ["id", "nombre", "zonas", "tipo", "valor", "vigencia", "campus"],
+      campus,
+      delta.promotions.map((promo) => [
         promo.id,
         promo.name,
         promo.zoneIds.join("|"),
@@ -209,14 +240,39 @@ export async function applySheetsDelta(delta: SheetsDelta) {
         promo.discountValue,
         promo.expiresAt,
       ]),
-    ]);
+    );
   }
 
   if (delta.purchases) {
     const sheets = purchaseSheets(delta.purchases);
-    await replaceTab(spreadsheetId, "Ventas", sheets.ventas);
-    await replaceTab(spreadsheetId, "Boletos", sheets.boletos);
-    await replaceTab(spreadsheetId, "Parcialidades", sheets.parcialidades);
+    await mergeCampusTab(
+      spreadsheetId,
+      "Ventas",
+      ["id", "fecha", "correo", "telefono", "modalidad", "metodo", "total", "pagado", "saldo", "boletos", "campus"],
+      campus,
+      sheets.ventas,
+    );
+    await mergeCampusTab(
+      spreadsheetId,
+      "Boletos",
+      ["compra_id", "boleto_id", "asiento_id", "titular", "precio", "promocion", "campus"],
+      campus,
+      sheets.boletos,
+    );
+    await mergeCampusTab(
+      spreadsheetId,
+      "Parcialidades",
+      ["compra_id", "indice", "fecha", "monto", "pagado", "campus"],
+      campus,
+      sheets.parcialidades,
+    );
+    await mergeCampusTab(
+      spreadsheetId,
+      "Pagos",
+      ["compra_id", "pago_id", "fecha", "monto", "metodo", "campus"],
+      campus,
+      sheets.pagos,
+    );
   }
 
   if (delta.writeUsers) {
@@ -228,7 +284,7 @@ export async function applySheetsDelta(delta: SheetsDelta) {
 
 export async function syncStateToSheets(
   state: PersistedState,
-  options?: { writeTabulador?: boolean },
+  options?: { writeTabulador?: boolean; campus?: DataCampus },
 ) {
   const looksDefault =
     state.event.name === "Conferencia Magistral 2026" && state.tabulador.version === "2.0.0";
@@ -245,5 +301,6 @@ export async function syncStateToSheets(
     seatStatus: state.seatStatus,
     tabulador: options?.writeTabulador ? state.tabulador : undefined,
     writeTabulador: options?.writeTabulador,
+    campus: options?.campus ?? DEFAULT_CAMPUS,
   });
 }

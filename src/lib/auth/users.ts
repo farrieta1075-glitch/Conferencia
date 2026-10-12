@@ -2,13 +2,20 @@ import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseRole, type Role } from "@/lib/auth/roles";
+import { DEFAULT_CAMPUS, parseCampus, type Campus } from "@/lib/campus";
 import { sheetsConfigured } from "@/lib/sheets/client";
 import { readUsersFromSheets, writeUsersToSheets } from "@/lib/sheets/users";
+
+function campusForEmail(email: string, raw?: string): Campus {
+  if (email === "admin@auditorio.local") return "ALL";
+  return parseCampus(raw) ?? DEFAULT_CAMPUS;
+}
 
 export interface AuthUser {
   email: string;
   name: string;
   role: Role;
+  campus: Campus;
   password?: string;
   passwordHash?: string;
   source: "env" | "file";
@@ -53,14 +60,16 @@ function parseEnvUsers(raw: string | undefined): AuthUser[] {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .flatMap((entry) => {
-      const [email, password, roleRaw] = entry.split(":");
+      const [emailRaw, password, roleRaw, campusRaw] = entry.split(":");
+      const email = emailRaw.trim().toLowerCase();
       const role = parseRole(roleRaw);
       if (!email || !password || !role) return [];
       return [
         {
-          email: email.trim().toLowerCase(),
-          name: email.trim(),
+          email,
+          name: emailRaw.trim(),
           role,
+          campus: campusForEmail(email, campusRaw),
           password,
           source: "env" as const,
         },
@@ -81,6 +90,7 @@ async function readFileUsers(): Promise<AuthUser[]> {
           email: String(user.email).trim().toLowerCase(),
           name: user.name || String(user.email),
           role,
+          campus: campusForEmail(String(user.email).trim().toLowerCase(), user.campus),
           passwordHash: user.passwordHash,
           source: "file" as const,
         },
@@ -140,7 +150,7 @@ export async function authenticateUser(
   if (!user) return null;
   const stored = user.passwordHash ?? user.password;
   if (!stored || !verifyPassword(password, stored)) return null;
-  return { email: user.email, name: user.name, role: user.role, source: user.source };
+  return { email: user.email, name: user.name, role: user.role, campus: user.campus, source: user.source };
 }
 
 export async function createUser(input: {
@@ -148,6 +158,7 @@ export async function createUser(input: {
   name?: string;
   password: string;
   role: Role;
+  campus: Campus;
 }): Promise<AuthUser> {
   const email = input.email.trim().toLowerCase();
   const existing = await listUsers();
@@ -158,6 +169,7 @@ export async function createUser(input: {
     email,
     name: input.name?.trim() || email,
     role: input.role,
+    campus: campusForEmail(email, input.campus),
     passwordHash: hashPassword(input.password),
     source: "file",
   };
@@ -185,6 +197,7 @@ export function publicUser(user: AuthUser) {
     email: user.email,
     name: user.name,
     role: user.role,
+    campus: user.campus,
     source: user.source,
   };
 }

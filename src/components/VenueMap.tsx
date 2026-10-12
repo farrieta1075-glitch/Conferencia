@@ -4,8 +4,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEventStore } from "@/context/EventStore";
 import { useSalesFocus } from "@/context/SalesFocus";
-import { COLORS, MAP } from "@/lib/constants";
-import { seatId, money } from "@/lib/format";
+import { AREA_SHORT_LABELS, COLORS, MAP } from "@/lib/constants";
+import { seatId, money, parseSeatId } from "@/lib/format";
 import {
   annularSectorPath,
   aisleStripPath,
@@ -18,11 +18,13 @@ import {
 } from "@/lib/geometry";
 import { boundsOf, findNeighbors, sectionAtPoint, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
+import { findPurchaseBySeat } from "@/lib/purchases";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
 import { radiusForRow, resolveRowBands, rowDeltaR, type RowBandLayout } from "@/lib/tabulador/rowBands";
 import { sortedRows } from "@/lib/tabulador/seats";
 import type { RowSpec, SeatRef, SeatStatus, SectionGeometry } from "@/lib/types";
 import { PurchaseModal } from "./PurchaseModal";
+import { SeatPurchasePeek, type SeatPurchasePeekState } from "./SeatPurchasePeek";
 import { RoleGate, useCan } from "./auth/RoleGate";
 import { usePanZoom } from "./usePanZoom";
 
@@ -86,7 +88,9 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   });
   const [selected, setSelected] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
+  const [peek, setPeek] = useState<SeatPurchasePeekState | null>(null);
   const [hoverSeat, setHoverSeat] = useState<SeatHover | null>(null);
+  const [showLegend, setShowLegend] = useState(false);
   const canSell = useCan("sales:create");
 
   const geometries = useMemo(
@@ -176,6 +180,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   );
   const hovered = sectionAtPoint(geometries, probe.x, probe.y) ?? sectionAtPoint(geometries, viewCenter.x, viewCenter.y);
   const activeId = hovered?.sectionId ?? null;
+  const mapTitle =
+    transform.k >= 1.25 && hovered
+      ? `${AREA_SHORT_LABELS[hovered.areaId]} ${hovered.sectionId}`
+      : "Mapa general";
 
   const seatFocus = useMemo(() => {
     const empty = { ids: new Set<string>(), primary: null as string | null };
@@ -229,6 +237,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   }, [focusSectionId, geometries, layouts]);
 
   const selectedSet = new Set(selected);
+  const peekedSet = new Set(peek?.purchase.tickets.map((ticket) => ticket.seatId) ?? []);
+  const peekSectionIds = new Set(
+    peek?.purchase.tickets.map((ticket) => parseSeatId(ticket.seatId).sectionId) ?? [],
+  );
   const selectedSeats = selected
     .map((id) => seatIndex.get(id))
     .filter((seat): seat is SeatRef => Boolean(seat));
@@ -238,15 +250,32 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   );
 
   function focusSection(sectionId: string) {
+    if (peek) {
+      setPeek(null);
+      return;
+    }
+    if (seatFocus.ids.has(sectionId) && transform.k >= 1.85) return;
     zoomToSection(sectionId);
   }
 
-  const toggleSeat = useCallback((id: string, status: SeatStatus) => {
-    if (!canSell || status !== "available") return;
-    setSelected((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
-    );
-  }, [canSell]);
+  const closePeek = useCallback(() => setPeek(null), []);
+
+  const onSeatClick = useCallback(
+    (id: string, status: SeatStatus, clientX: number, clientY: number) => {
+      if (status === "sold" || status === "held") {
+        const purchase = findPurchaseBySeat(state.purchases, id);
+        if (!purchase) return;
+        setPeek({ purchase, x: clientX, y: clientY });
+        return;
+      }
+      setPeek(null);
+      if (!canSell || status !== "available") return;
+      setSelected((current) =>
+        current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+      );
+    },
+    [canSell, state.purchases],
+  );
 
   const handleSeatHover = useCallback((seat: SeatHover | null, pointerType?: string) => {
     if (gesturingRef.current) return;
@@ -264,6 +293,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   function handleReset() {
     setSelected([]);
+    setPeek(null);
     clearFocus?.();
     reset();
   }
@@ -279,7 +309,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   function handleZoomIn(event: React.SyntheticEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
-    runControlTap(() => zoomAt(1.4));
+    runControlTap(() => zoomAt(1.55));
   }
 
   function handleZoomOut(event: React.SyntheticEvent<HTMLButtonElement>) {
@@ -296,15 +326,15 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   return (
     <div className="card flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-        <div>
-          <p className="text-xs uppercase tracking-wider text-bronze-dark">Mapa general</p>
-          <h2 className="font-display text-xl text-ink lg:text-2xl">Auditorio Nacional</h2>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2 max-[1100px]:landscape:py-1">
+        <div className="min-w-0">
+          <p className="text-[10px] uppercase tracking-wider text-bronze-dark sm:text-xs">{mapTitle}</p>
+          <h2 className="font-display truncate text-lg text-ink sm:text-xl lg:text-2xl">Auditorio Nacional</h2>
         </div>
-        <div className="relative z-20 flex gap-2">
+        <div className="relative z-20 flex gap-1.5 sm:gap-2">
           <button
             type="button"
-            className="btn-ghost min-h-12 min-w-12 px-4 text-lg"
+            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4"
             onPointerUp={handleZoomIn}
             onClick={handleZoomIn}
           >
@@ -312,7 +342,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           </button>
           <button
             type="button"
-            className="btn-ghost min-h-12 min-w-12 px-4 text-lg"
+            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4"
             onPointerUp={handleZoomOut}
             onClick={handleZoomOut}
           >
@@ -320,7 +350,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           </button>
           <button
             type="button"
-            className="btn-ghost min-h-12 px-4"
+            className="btn-ghost min-h-11 px-3 sm:min-h-12 sm:px-4"
             onPointerUp={handleResetTap}
             onClick={handleResetTap}
           >
@@ -388,7 +418,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               const angular = Math.abs(geo.thetaEnd - geo.thetaStart);
               const isPit = geo.sectionId === "101";
               const isActive = geo.sectionId === activeId;
-              const showingSeats = seatFocus.ids.has(geo.sectionId);
+              const showingSeats = seatFocus.ids.has(geo.sectionId) || peekSectionIds.has(geo.sectionId);
               const fill = isPit ? "#C5CAD3" : onSale ? COLORS.saleZoneActive : "#1E4BA8";
               const fontSize = Math.max(
                 8 / Math.sqrt(transform.k),
@@ -435,9 +465,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       seatH={seatBox.h}
                       zoom={transform.k}
                       selected={selectedSet}
+                      peeked={peekedSet}
                       includeUnassigned={geo.sectionId === seatFocus.primary && transform.k >= 2.6}
                       statusOf={statusOf}
-                      onSeatClick={toggleSeat}
+                      onSeatClick={onSeatClick}
                       onSeatHover={handleSeatHover}
                     />
                   ) : null}
@@ -474,18 +505,29 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
             </text>
           </g>
         </svg>
-        <ul className="pointer-events-none absolute left-3 top-3 right-3 flex flex-wrap gap-x-3 gap-y-1 rounded-xl bg-navy/80 px-3 py-2 text-[11px] text-white/90 backdrop-blur sm:right-auto">
-          {LEGEND.map((item) => (
-            <li key={item.label} className="flex items-center gap-1.5">
-              <span
-                className="h-2.5 w-2.5 rounded-full ring-1 ring-white/30"
-                style={{ background: item.color }}
-              />
-              {item.label}
-            </li>
-          ))}
-          <li className="text-white/70">Toca una zona para acercar · cada asiento muestra fila y número (B36)</li>
-        </ul>
+        {peek ? createPortal(<SeatPurchasePeek peek={peek} onClose={closePeek} />, document.body) : null}
+        <div className="absolute left-2 top-2 z-10 sm:left-3 sm:top-3">
+          <button
+            type="button"
+            className="rounded-xl bg-navy/80 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur"
+            onClick={() => setShowLegend((open) => !open)}
+          >
+            {showLegend ? "Ocultar leyenda" : "Ver leyenda"}
+          </button>
+          {showLegend ? (
+            <ul className="mt-2 flex max-w-[16rem] flex-wrap gap-x-3 gap-y-1 rounded-xl bg-navy/80 px-3 py-2 text-[11px] text-white/90 backdrop-blur">
+              {LEGEND.map((item) => (
+                <li key={item.label} className="flex items-center gap-1.5">
+                  <span
+                    className="h-2.5 w-2.5 rounded-full ring-1 ring-white/30"
+                    style={{ background: item.color }}
+                  />
+                  {item.label}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
         {hoverSeat
           ? createPortal(
               <div
@@ -503,11 +545,11 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
       </div>
       <RoleGate allow="sales:create">
         {!!selected.length && (
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-4 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
             <p className="text-sm text-ink-muted">
               {selected.length} asiento(s) · {money(total)}. Toca de nuevo para quitar.
             </p>
-            <button type="button" className="btn-primary" onClick={() => setOpen(true)}>
+            <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => setOpen(true)}>
               Comprar seleccionados · {money(total)}
             </button>
           </div>
@@ -536,6 +578,7 @@ const SectionSeats = memo(function SectionSeats({
   seatH,
   zoom,
   selected,
+  peeked,
   includeUnassigned,
   statusOf,
   onSeatClick,
@@ -550,9 +593,10 @@ const SectionSeats = memo(function SectionSeats({
   seatH: number;
   zoom: number;
   selected: Set<string>;
+  peeked: Set<string>;
   includeUnassigned: boolean;
   statusOf: (id: string) => SeatStatus;
-  onSeatClick: (id: string, status: SeatStatus) => void;
+  onSeatClick: (id: string, status: SeatStatus, clientX: number, clientY: number) => void;
   onSeatHover: (seat: SeatHover | null, pointerType?: string) => void;
 }) {
   const hit = Math.max(seatW, seatH, 18 / zoom);
@@ -572,7 +616,8 @@ const SectionSeats = memo(function SectionSeats({
             : geo.rInner + ((rowIndex + 0.55) / Math.max(rows.length, 1)) * (geo.rOuter - geo.rInner);
           const point = polarAtRadius(geo, radius, item.t);
           const deg = (point.theta * 180) / Math.PI;
-          const isSelected = selected.has(id);
+          const isPeeked = peeked.has(id);
+          const isSelected = selected.has(id) || isPeeked;
           const code = `${row.id}${number}`;
           const codeSize = Math.min(seatH * 0.34, (seatW * 0.62) / Math.max(code.length * 0.7, 2));
           const showCode = seatW * zoom > 8.5;
@@ -608,7 +653,7 @@ const SectionSeats = memo(function SectionSeats({
                 if (event.currentTarget.dataset.armed !== "1") return;
                 delete event.currentTarget.dataset.armed;
                 if (event.button !== 0 && event.pointerType === "mouse") return;
-                onSeatClick(id, status);
+                onSeatClick(id, status, event.clientX, event.clientY);
               }}
               onClick={(event) => event.stopPropagation()}
             >
@@ -626,8 +671,8 @@ const SectionSeats = memo(function SectionSeats({
                 height={seatH}
                 rx={Math.min(1.6, seatW / 5)}
                 fill={STATUS_FILL[status]}
-                stroke={isSelected ? "#F8FAFC" : "#0B132B"}
-                strokeWidth={(isSelected ? 1.2 : 0.32) / zoom}
+                stroke={isPeeked ? "#E8C39A" : isSelected ? "#F8FAFC" : "#0B132B"}
+                strokeWidth={(isSelected ? 1.35 : 0.32) / zoom}
               />
               {showCode ? (
                 <text

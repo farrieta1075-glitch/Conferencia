@@ -18,6 +18,7 @@ export const SHEET_TABS = [
   "Ventas",
   "Boletos",
   "Parcialidades",
+  "Pagos",
   "Usuarios",
 ] as const;
 

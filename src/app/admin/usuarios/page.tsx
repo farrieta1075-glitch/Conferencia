@@ -2,12 +2,15 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { ROLES, roleLabel, type Role } from "@/lib/auth/roles";
+import { CAMPUSES, campusLabel, type Campus } from "@/lib/campus";
 import { apiFetch } from "@/lib/api/client";
+import { useCampus } from "@/context/CampusContext";
 
 interface PublicUser {
   email: string;
   name: string;
   role: Role;
+  campus: Campus;
   source: "env" | "file";
 }
 
@@ -16,7 +19,9 @@ export default function UsuariosAdminPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const { userCampus } = useCampus();
   const [role, setRole] = useState<Role>("EDITOR");
+  const [campus, setCampus] = useState<Campus>("QRO");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -36,7 +41,7 @@ export default function UsuariosAdminPage() {
     try {
       await apiFetch("/api/users", {
         method: "POST",
-        body: JSON.stringify({ email, name, password, role }),
+        body: JSON.stringify({ email, name, password, role, campus }),
       });
       setEmail("");
       setName("");
@@ -116,6 +121,20 @@ export default function UsuariosAdminPage() {
             ))}
           </select>
         </label>
+        <label className="text-sm font-medium text-ink-muted">
+          Campus
+          <select
+            className="field mt-1"
+            value={campus}
+            onChange={(e) => setCampus(e.target.value as Campus)}
+          >
+            {CAMPUSES.filter((item) => userCampus === "ALL" || item !== "ALL").map((item) => (
+              <option key={item} value={item}>
+                {campusLabel(item)}
+              </option>
+            ))}
+          </select>
+        </label>
         <button type="submit" className="btn-primary w-fit" disabled={busy}>
           Crear usuario
         </button>
@@ -127,6 +146,7 @@ export default function UsuariosAdminPage() {
             <tr className="text-ink-muted">
               <th className="pb-2">Correo</th>
               <th className="pb-2">Rol</th>
+              <th className="pb-2">Campus</th>
               <th className="pb-2">Origen</th>
               <th className="pb-2" />
             </tr>
@@ -139,6 +159,7 @@ export default function UsuariosAdminPage() {
                   <div className="text-xs text-ink-muted">{user.email}</div>
                 </td>
                 <td>{roleLabel(user.role)}</td>
+                <td>{campusLabel(user.campus)}</td>
                 <td>{user.source === "env" ? "Inicial" : "App"}</td>
                 <td>
                   {user.source === "file" ? (

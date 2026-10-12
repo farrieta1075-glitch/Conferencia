@@ -1,4 +1,5 @@
 import { parseRole, type Role } from "@/lib/auth/roles";
+import { DEFAULT_CAMPUS, parseCampus, type Campus } from "@/lib/campus";
 import {
   ensureTabs,
   getSheets,
@@ -10,11 +11,12 @@ export interface SheetAuthUser {
   email: string;
   name: string;
   role: Role;
+  campus: Campus;
   passwordHash?: string;
   source: "env" | "file";
 }
 
-const HEADERS = ["correo", "nombre", "rol", "origen", "hash"] as const;
+const HEADERS = ["correo", "nombre", "rol", "origen", "hash", "campus"] as const;
 
 async function replaceUsersTab(values: string[][]) {
   const spreadsheetId = await getSpreadsheetId();
@@ -41,7 +43,7 @@ export async function readUsersFromSheets(): Promise<SheetAuthUser[]> {
   const sheets = getSheets();
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Usuarios!A:E",
+    range: "Usuarios!A:F",
   });
   const rows = (result.data.values ?? []).slice(1);
   return rows.flatMap((row) => {
@@ -54,12 +56,14 @@ export async function readUsersFromSheets(): Promise<SheetAuthUser[]> {
       .trim()
       .toLowerCase();
     const passwordHash = String(row[4] ?? "").trim();
+    const campus = parseCampus(row[5]) ?? (email === "admin@auditorio.local" ? "ALL" : DEFAULT_CAMPUS);
     if (!email || !role || origin === "env" || !passwordHash) return [];
     return [
       {
         email,
         name: name || email,
         role,
+        campus,
         passwordHash,
         source: "file" as const,
       },
@@ -79,6 +83,7 @@ export async function writeUsersToSheets(users: SheetAuthUser[]): Promise<void> 
       user.role,
       user.source,
       user.source === "file" ? user.passwordHash ?? "" : "",
+      user.campus ?? (user.email === "admin@auditorio.local" ? "ALL" : DEFAULT_CAMPUS),
     ]),
   ]);
 }

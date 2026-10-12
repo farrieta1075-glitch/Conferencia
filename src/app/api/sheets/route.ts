@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, requirePermission } from "@/lib/auth/api";
+import { resolveWorkingCampus } from "@/lib/campus";
 import {
   ensureTabs,
   getSpreadsheetId,
@@ -15,9 +16,11 @@ export const maxDuration = 60;
 
 export async function GET(request: Request) {
   try {
-    await requirePermission("maps:read");
+    const { session } = await requirePermission("maps:read");
     const spreadsheetId = await getSpreadsheetId();
-    const hydrate = new URL(request.url).searchParams.get("hydrate") === "1";
+    const url = new URL(request.url);
+    const hydrate = url.searchParams.get("hydrate") === "1";
+    const campus = resolveWorkingCampus(session.user.campus, url.searchParams.get("campus"));
     const payload: {
       configured: boolean;
       spreadsheetId: string;
@@ -31,7 +34,7 @@ export async function GET(request: Request) {
     };
     if (hydrate) {
       try {
-        payload.state = payload.ready ? await loadStateFromSheets() : null;
+        payload.state = payload.ready ? await loadStateFromSheets(campus) : null;
       } catch (error) {
         payload.state = null;
         payload.hydrateError =
@@ -46,13 +49,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    await requirePermission("sheets:sync");
+    const { session } = await requirePermission("sheets:sync");
     const body = (await request.json()) as {
       spreadsheetId?: string;
       state?: PersistedState;
       delta?: SheetsDelta;
       writeTabulador?: boolean;
     };
+    const campus = resolveWorkingCampus(session.user.campus, body.delta?.campus);
     if (body.spreadsheetId?.trim() && !process.env.GOOGLE_SHEETS_ID?.trim()) {
       await saveSpreadsheetId(body.spreadsheetId.trim());
     }
@@ -68,9 +72,10 @@ export async function POST(request: Request) {
       });
     }
     const result = body.delta
-      ? await applySheetsDelta(body.delta)
+      ? await applySheetsDelta({ ...body.delta, campus })
       : await syncStateToSheets(body.state as PersistedState, {
           writeTabulador: Boolean(body.writeTabulador),
+          campus,
         });
     return NextResponse.json(result);
   } catch (error) {
