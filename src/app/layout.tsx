@@ -22,7 +22,6 @@ export const metadata: Metadata = {
   description:
     "PWA de venta y control de boletos del Auditorio Nacional, Ciudad de México.",
   applicationName: "Boletos AN",
-  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     title: "Boletos AN",

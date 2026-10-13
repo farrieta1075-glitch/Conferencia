@@ -9,7 +9,8 @@ export function permissionForRequest(
     pathname === "/login" ||
     pathname === "/forbidden" ||
     pathname.startsWith("/icon") ||
-    pathname.startsWith("/apple-icon")
+    pathname.startsWith("/apple-icon") ||
+    pathname.startsWith("/manifest")
   ) {
     return null;
   }

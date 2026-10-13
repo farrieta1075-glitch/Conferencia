@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Header } from "./Header";
 import { Nav } from "./Nav";
 import { RegisterSW } from "./RegisterSW";
+import { SyncPwaIcon } from "./SyncPwaIcon";
 import { SalesFocusProvider, useSalesFocus } from "@/context/SalesFocus";
 import { usePathname } from "next/navigation";
 
@@ -21,7 +22,12 @@ function ClearSalesFocusOffMap() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   if (pathname === "/login") {
-    return <>{children}</>;
+    return (
+      <>
+        <SyncPwaIcon />
+        {children}
+      </>
+    );
   }
 
   const isSales = pathname === "/" || pathname.startsWith("/seccion");
@@ -31,6 +37,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <ClearSalesFocusOffMap />
       <div className="flex h-dvh flex-col overflow-hidden bg-navy">
         <RegisterSW />
+        <SyncPwaIcon />
         <Header compact={isSales} />
         <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden lg:flex-row phone-landscape:flex-row">
           <Nav />
