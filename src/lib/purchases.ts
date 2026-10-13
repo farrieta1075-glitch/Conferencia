@@ -1,10 +1,11 @@
 import { roundMoney } from "@/lib/format";
-import type { PaymentRecord, Purchase, SeatStatus } from "@/lib/types";
+import type { PaymentRecord, Purchase, ReminderJob, SeatStatus } from "@/lib/types";
 
 export interface PurchasePatch {
   phone?: string;
   email?: string;
   tickets?: { id: string; holderName: string }[];
+  appendReminder?: ReminderJob;
 }
 
 export function remainingBalance(purchase: Purchase): number {
@@ -104,6 +105,9 @@ export function applyPurchasePatch(purchase: Purchase, patch: PurchasePatch): Pu
       email: patch.email?.trim() ?? purchase.customer.email,
     },
     tickets,
+    reminders: patch.appendReminder
+      ? [...(purchase.reminders ?? []), patch.appendReminder]
+      : purchase.reminders ?? [],
   };
 }
 

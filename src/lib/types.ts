@@ -96,13 +96,22 @@ export interface PaymentRecord {
   cancelledAt?: string;
 }
 
+export type NotifyKind =
+  | "payment-reminder"
+  | "purchase-thanks"
+  | "event-details"
+  | "last-details"
+  | "post-event";
+
 export interface ReminderJob {
   id: string;
   channel: "whatsapp" | "email";
   to: string;
   scheduledFor: string;
+  sentAt?: string;
+  kind?: NotifyKind;
   message: string;
-  status: "simulated";
+  status: "simulated" | "sent";
 }
 
 export interface Ticket {

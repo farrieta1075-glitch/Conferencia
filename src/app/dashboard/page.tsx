@@ -2,13 +2,15 @@
 
 import { useMemo, useState } from "react";
 import { MiniBarChart, type BarPoint, type BarSeries } from "@/components/MiniBarChart";
-import { RoleGate } from "@/components/auth/RoleGate";
+import { NotifyPurchaseModal } from "@/components/NotifyPurchaseModal";
+import { RoleGate, useCurrentRole } from "@/components/auth/RoleGate";
 import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
 import { formatDate, money } from "@/lib/format";
 import { activePayments, isNamelessBlock, remainingBalance } from "@/lib/purchases";
 import { flattenSeats } from "@/lib/tabulador/generator";
 import { priceForSeat } from "@/lib/pricing";
+import type { ReminderJob } from "@/lib/types";
 import { addDays, dayLabel, enumerateWeeks, weekLabel, weekStart } from "@/lib/weeks";
 
 function monthKey(iso: string) {
@@ -22,12 +24,17 @@ function monthLabel(key: string) {
 }
 
 export default function DashboardPage() {
-  const { state, statusOf } = useEventStore();
+  const { state, seatIndex, statusOf, updatePurchase } = useEventStore();
   const { campus } = useCampus();
+  const isAdmin = useCurrentRole() === "ADMIN";
   const [open, setOpen] = useState<"methods" | "seats" | null>(null);
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
   const [cobrosOpen, setCobrosOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
+  const [notify, setNotify] = useState<{ purchaseId: string; dueDate: string } | null>(null);
+  const notifyPurchase = notify
+    ? state.purchases.find((item) => item.id === notify.purchaseId && !item.cancelled) ?? null
+    : null;
 
   const metrics = useMemo(() => {
     const seats = flattenSeats(state.tabulador);
@@ -267,6 +274,17 @@ export default function DashboardPage() {
                             {item.holder || item.phone}
                           </RoleGate>
                         </td>
+                        {isAdmin ? (
+                          <td className="py-1 text-right">
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-bronze-dark"
+                              onClick={() => setNotify({ purchaseId: item.purchaseId, dueDate: item.date })}
+                            >
+                              Notificar
+                            </button>
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -311,6 +329,19 @@ export default function DashboardPage() {
           </table>
         ) : null}
       </section>
+
+      {notifyPurchase && notify ? (
+        <NotifyPurchaseModal
+          purchase={notifyPurchase}
+          installmentDate={notify.dueDate}
+          eventDatetime={state.event.datetime}
+          seatIndex={seatIndex}
+          onClose={() => setNotify(null)}
+          onRecord={async (reminder: ReminderJob) => {
+            await updatePurchase(notifyPurchase.id, { appendReminder: reminder });
+          }}
+        />
+      ) : null}
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-navy/70 p-3 sm:items-center" onClick={() => setOpen(null)}>

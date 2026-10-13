@@ -16,6 +16,8 @@ import type {
   Promotion,
   PaymentRecord,
   Purchase,
+  NotifyKind,
+  ReminderJob,
   SeatStatus,
   VenueTabulador,
 } from "@/lib/types";
@@ -141,16 +143,31 @@ function buildTabulador(
   };
 }
 
+function parseNotifyKind(value: string): NotifyKind | undefined {
+  if (
+    value === "payment-reminder" ||
+    value === "purchase-thanks" ||
+    value === "event-details" ||
+    value === "last-details" ||
+    value === "post-event"
+  ) {
+    return value;
+  }
+  return undefined;
+}
+
 function buildPurchases(
   sales: string[][],
   tickets: string[][],
   installments: string[][],
   payments: string[][],
+  notifications: string[][],
   campus: DataCampus,
 ): Purchase[] {
   const ticketRows = tickets.slice(1).filter((row) => row[0]);
   const installmentRows = installments.slice(1).filter((row) => row[0]);
   const paymentRows = payments.slice(1).filter((row) => row[0]);
+  const notifyRows = notifications.slice(1).filter((row) => row[0]);
   const purchases: Purchase[] = [];
 
   for (const row of sales.slice(1)) {
@@ -225,7 +242,18 @@ function buildPurchases(
           })),
         payments: paymentsForPurchase,
         cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
-        reminders: [],
+        reminders: notifyRows
+          .filter((item) => item[0] === id)
+          .map((item): ReminderJob => ({
+            id: item[1] || `ntf-${id}-${item[5]}`,
+            channel: item[2] === "email" ? "email" : "whatsapp",
+            kind: parseNotifyKind(item[3]),
+            to: item[4] || "",
+            scheduledFor: item[5] || "",
+            sentAt: item[5] || undefined,
+            message: item[6] || "",
+            status: item[7] === "sent" ? "sent" : "simulated",
+          })),
       }),
     );
   }
@@ -252,6 +280,7 @@ export async function loadStateFromSheets(
     boletos,
     parcialidades,
     pagos,
+    notificaciones,
   ] = await readRanges(spreadsheetId, [
     "Evento!A1:E",
     "Logo!A1:Z",
@@ -263,6 +292,7 @@ export async function loadStateFromSheets(
     "Boletos!A1:G",
     "Parcialidades!A1:G",
     "Pagos!A1:I",
+    "Notificaciones!A1:I",
   ]);
 
   const eventoRows = filterCampusRows(evento, 4, campus);
@@ -348,6 +378,7 @@ export async function loadStateFromSheets(
       filterCampusRows(boletos, 6, campus),
       filterCampusRows(parcialidades, 6, campus),
       filterCampusRows(pagos, 8, campus),
+      filterCampusRows(notificaciones, 8, campus),
       campus,
     ),
   };

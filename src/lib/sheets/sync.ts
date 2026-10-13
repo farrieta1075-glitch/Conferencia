@@ -165,6 +165,18 @@ function purchaseSheets(purchases: Purchase[]) {
         item.cancelledAt ?? "",
       ]),
     ),
+    notificaciones: purchases.flatMap((purchase) =>
+      (purchase.reminders ?? []).map((item) => [
+        purchase.id,
+        item.id,
+        item.channel,
+        item.kind ?? "",
+        item.to,
+        item.sentAt ?? item.scheduledFor,
+        item.message,
+        item.status,
+      ]),
+    ),
   };
 }
 
@@ -302,6 +314,13 @@ export async function applySheetsDelta(delta: SheetsDelta) {
       ["compra_id", "pago_id", "fecha", "monto", "metodo", "cancelado", "motivo", "fecha_cancelacion", "campus"],
       campus,
       sheets.pagos,
+    );
+    await mergeCampusTab(
+      spreadsheetId,
+      "Notificaciones",
+      ["compra_id", "notif_id", "canal", "tipo", "telefono", "fecha", "mensaje", "estatus", "campus"],
+      campus,
+      sheets.notificaciones,
     );
   }
 
