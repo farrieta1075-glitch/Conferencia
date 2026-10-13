@@ -62,7 +62,7 @@ export const MAP = {
   originX: 700,
   originY: 1040,
   viewX: 20,
-  viewY: 220,
+  viewY: 180,
   viewW: 1360,
-  viewH: 900,
+  viewH: 940,
 } as const;

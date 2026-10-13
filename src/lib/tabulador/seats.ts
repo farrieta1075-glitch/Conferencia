@@ -33,6 +33,11 @@ export function tokenizeSeatLayout(value: unknown): SeatSlot[] {
       const end = Number(match[2]);
       const from = Math.min(start, end);
       const to = Math.max(start, end);
+      if (to - from > 120) {
+        slots.push({ kind: "seat", number: start });
+        if (end !== start) slots.push({ kind: "seat", number: end });
+        continue;
+      }
       for (let n = from; n <= to; n += 1) slots.push({ kind: "seat", number: n });
       continue;
     }

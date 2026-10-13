@@ -192,20 +192,20 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const seatFocus = useMemo(() => {
     const empty = { ids: new Set<string>(), primary: null as string | null };
     if (transform.k < 1.85) return empty;
-    const primary =
-      sectionAtPoint(geometries, viewCenter.x, viewCenter.y) ??
-      sectionAtPoint(geometries, probe.x, probe.y);
+    const primary = sectionAtPoint(geometries, viewCenter.x, viewCenter.y);
     if (!primary) return empty;
     const ids = new Set<string>([primary.sectionId]);
-    const neighbors = findNeighbors(geometries, primary.sectionId);
-    if (neighbors.left) ids.add(neighbors.left.sectionId);
-    if (neighbors.right) ids.add(neighbors.right.sectionId);
-    if (transform.k >= 2.7) {
-      if (neighbors.inward) ids.add(neighbors.inward.sectionId);
-      if (neighbors.outward) ids.add(neighbors.outward.sectionId);
+    if (transform.k >= 2.4) {
+      const neighbors = findNeighbors(geometries, primary.sectionId);
+      if (neighbors.left) ids.add(neighbors.left.sectionId);
+      if (neighbors.right) ids.add(neighbors.right.sectionId);
+      if (transform.k >= 3.1) {
+        if (neighbors.inward) ids.add(neighbors.inward.sectionId);
+        if (neighbors.outward) ids.add(neighbors.outward.sectionId);
+      }
     }
     return { ids, primary: primary.sectionId };
-  }, [geometries, probe.x, probe.y, transform, viewCenter.x, viewCenter.y]);
+  }, [geometries, transform.k, viewCenter.x, viewCenter.y]);
 
   useEffect(() => {
     if (!setFocus || !clearFocus) return;
