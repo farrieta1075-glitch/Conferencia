@@ -39,6 +39,7 @@ const STATUS_FILL: Record<SeatStatus, string> = {
 const LEGEND: { label: string; color: string }[] = [
   { label: "Zona con venta", color: COLORS.saleZoneActive },
   { label: "No asignado", color: COLORS.unassigned },
+  { label: "Otro campus", color: COLORS.foreign },
   { label: "Disponible", color: COLORS.available },
   { label: "Apartado", color: COLORS.held },
   { label: "Vendido", color: COLORS.sold },
@@ -735,7 +736,7 @@ const SectionSeats = memo(function SectionSeats({
                 width={w}
                 height={h}
                 rx={Math.min(1.6, w / 5)}
-                fill={STATUS_FILL[status === "foreign" ? "unassigned" : status]}
+                fill={STATUS_FILL[status]}
                 stroke={isPeeked ? "#E8C39A" : isSelected ? "#F8FAFC" : "#0B132B"}
                 strokeWidth={(isSelected ? 1.35 : 0.32) / zoom}
               />
@@ -744,8 +745,8 @@ const SectionSeats = memo(function SectionSeats({
                   y={codeSize * 0.08}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill={status === "unassigned" || status === "foreign" ? "#0B132B" : "#F8FAFC"}
-                  stroke={status === "unassigned" || status === "foreign" ? "#F8FAFC" : "#060B18"}
+                  fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
+                  stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
                   strokeWidth={Math.max(0.2, codeSize * 0.055)}
                   paintOrder="stroke"
                   fontSize={codeSize}

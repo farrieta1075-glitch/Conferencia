@@ -100,23 +100,20 @@ export function CurvedSeatMap({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(1.35)}>
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" className="btn-ghost min-h-9 min-w-9 px-3 text-base" onClick={() => zoomAt(1.35)}>
           +
         </button>
-        <button type="button" className="btn-ghost min-h-12 min-w-12 px-4 text-lg" onClick={() => zoomAt(0.75)}>
+        <button type="button" className="btn-ghost min-h-9 min-w-9 px-3 text-base" onClick={() => zoomAt(0.75)}>
           −
         </button>
-        <button type="button" className="btn-ghost min-h-12 px-4" onClick={reset}>
+        <button type="button" className="btn-ghost min-h-9 px-3 text-sm" onClick={reset}>
           Ver todo
         </button>
-        <p className="self-center text-xs text-ink-muted">
-          Toca un asiento para venta · pellizca o usa + / − para zoom
-        </p>
       </div>
     <svg
       viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-      className="h-[min(68vh,760px)] w-full touch-none rounded-2xl bg-navy-deep phone-landscape:h-[calc(100dvh-5.5rem)]"
+      className="h-[min(58vh,640px)] w-full touch-none rounded-2xl bg-navy-deep phone-landscape:h-[calc(100dvh-9rem)]"
       role="img"
       aria-label={`Asientos curvos de la sección ${sectionId}`}
       onPointerDown={onPointerDown}
@@ -227,7 +224,7 @@ export function CurvedSeatMap({
                     data-seat-id={id}
                     data-seat-status={status}
                     transform={`translate(${point.x} ${point.y}) rotate(${deg})`}
-                    className="cursor-pointer"
+                    className={status === "foreign" ? "cursor-not-allowed" : "cursor-pointer"}
                     style={{ touchAction: "manipulation" }}
                     onPointerDown={(event) => {
                       event.currentTarget.dataset.armed = "1";
@@ -259,7 +256,7 @@ export function CurvedSeatMap({
                     width={22}
                     height={18}
                     rx={4}
-                    fill={STATUS_FILL[status === "foreign" ? "unassigned" : status]}
+                    fill={STATUS_FILL[status]}
                     stroke={isSelected ? "#F8FAFC" : "#0B132B"}
                     strokeWidth={isSelected ? 2.2 : 0.8}
                   />
@@ -267,8 +264,8 @@ export function CurvedSeatMap({
                     y={2}
                     textAnchor="middle"
                     dominantBaseline="middle"
-                    fill={status === "unassigned" || status === "foreign" ? "#0B132B" : "#F8FAFC"}
-                    stroke={status === "unassigned" || status === "foreign" ? "#F8FAFC" : "#060B18"}
+                    fill={status === "unassigned" ? "#0B132B" : "#F8FAFC"}
+                    stroke={status === "unassigned" ? "#F8FAFC" : "#060B18"}
                     strokeWidth={1.1}
                     paintOrder="stroke"
                     fontSize="9"

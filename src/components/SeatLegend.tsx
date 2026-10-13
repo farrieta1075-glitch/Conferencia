@@ -2,6 +2,7 @@ import type { SeatStatus } from "@/lib/types";
 
 const ITEMS: { status: SeatStatus | "sale"; label: string; color: string }[] = [
   { status: "unassigned", label: "No asignado", color: "#CBD5E1" },
+  { status: "foreign", label: "Otro campus", color: "#475569" },
   { status: "available", label: "Disponible", color: "#16A34A" },
   { status: "held", label: "Apartado", color: "#D97706" },
   { status: "sold", label: "Vendido", color: "#DC2626" },

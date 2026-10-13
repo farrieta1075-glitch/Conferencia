@@ -102,38 +102,51 @@ export default function AsientosAdminPage() {
                 </p>
                 <SeatLegend />
               </div>
+              <div className="min-h-0 flex-1">
+                <CurvedSeatMap
+                  sectionId={sectionId}
+                  selectedIds={[]}
+                  onSeatClick={toggle}
+                  statusOf={statusOfDraft}
+                />
+              </div>
               <RoleGate allow="seats:edit">
-                <div className="mb-2 flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    className="btn-primary"
+                    className="inline-flex min-h-8 items-center rounded-lg bg-bronze px-2.5 text-xs font-semibold text-white"
                     onClick={() => applyStatus(sectionSeatIds, "available")}
                   >
                     Toda la sección a la venta
                   </button>
                   <button
                     type="button"
-                    className="btn-ghost"
+                    className="inline-flex min-h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-ink"
                     onClick={() => applyStatus(sectionSeatIds, "unassigned")}
                   >
                     Quitar sección de venta
                   </button>
                   <button
                     type="button"
-                    className="btn-primary"
+                    className="inline-flex min-h-8 items-center rounded-lg bg-bronze px-2.5 text-xs font-semibold text-white disabled:opacity-50"
                     disabled={!dirty || saving}
                     onClick={() => void save()}
                   >
                     {saving ? "Guardando…" : "Guardar disponibilidad"}
                   </button>
-                  <button type="button" className="btn-ghost" disabled={!dirty || saving} onClick={discard}>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-ink disabled:opacity-50"
+                    disabled={!dirty || saving}
+                    onClick={discard}
+                  >
                     Descartar
                   </button>
                   {sortedRows(located.section.rows).map((row, rowIndex) => (
                     <button
                       key={`${row.id}-${rowIndex}`}
                       type="button"
-                      className="btn-ghost px-3"
+                      className="inline-flex min-h-8 items-center rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold text-ink"
                       onClick={() =>
                         applyStatus(
                           row.seats.map((number) => seatId(located.section.id, row.id, number)),
@@ -147,18 +160,10 @@ export default function AsientosAdminPage() {
                 </div>
               </RoleGate>
               {dirty ? (
-                <p className="mb-2 text-sm text-held">Hay cambios sin guardar. Aún no se ven en venta.</p>
+                <p className="mt-2 text-sm text-held">Hay cambios sin guardar. Aún no se ven en venta.</p>
               ) : null}
-              {message ? <p className="mb-2 text-sm text-available">{message}</p> : null}
-              {error ? <p className="mb-2 text-sm text-sold">{error}</p> : null}
-              <div className="min-h-0 flex-1">
-                <CurvedSeatMap
-                  sectionId={sectionId}
-                  selectedIds={[]}
-                  onSeatClick={toggle}
-                  statusOf={statusOfDraft}
-                />
-              </div>
+              {message ? <p className="mt-2 text-sm text-available">{message}</p> : null}
+              {error ? <p className="mt-2 text-sm text-sold">{error}</p> : null}
             </>
           ) : (
             <div className="flex min-h-[min(68vh,760px)] flex-1 items-center justify-center rounded-2xl bg-navy-deep phone-landscape:min-h-[calc(100dvh-5.5rem)]">
