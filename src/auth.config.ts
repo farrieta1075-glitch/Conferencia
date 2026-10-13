@@ -14,6 +14,7 @@ export const authConfig = {
         token.campus = user.campus;
         token.email = user.email;
         token.name = user.name;
+        token.accessUntil = user.accessUntil;
       }
       return token;
     },
@@ -26,6 +27,8 @@ export const authConfig = {
             : (parseCampus(token.campus) ?? DEFAULT_CAMPUS);
         session.user.email = token.email ?? session.user.email;
         session.user.name = token.name ?? session.user.name;
+        session.user.accessUntil =
+          typeof token.accessUntil === "number" ? token.accessUntil : undefined;
       }
       return session;
     },

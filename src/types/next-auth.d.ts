@@ -6,12 +6,14 @@ declare module "next-auth" {
   interface User {
     role: Role;
     campus: Campus;
+    accessUntil?: number;
   }
 
   interface Session {
     user: {
       role: Role;
       campus: Campus;
+      accessUntil?: number;
     } & DefaultSession["user"];
   }
 }
@@ -20,5 +22,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     role?: Role;
     campus?: Campus;
+    accessUntil?: number;
   }
 }

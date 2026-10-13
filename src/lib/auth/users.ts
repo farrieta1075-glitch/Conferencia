@@ -2,6 +2,7 @@ import { scryptSync, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseRole, type Role } from "@/lib/auth/roles";
+import { parseSchedule, type EditorSchedule } from "@/lib/auth/schedule";
 import { DEFAULT_CAMPUS, parseCampus, type Campus } from "@/lib/campus";
 import { sheetsConfigured } from "@/lib/sheets/client";
 import { readUsersFromSheets, writeUsersToSheets } from "@/lib/sheets/users";
@@ -19,6 +20,7 @@ export interface AuthUser {
   password?: string;
   passwordHash?: string;
   source: "env" | "file";
+  schedule?: EditorSchedule;
 }
 
 const USERS_FILE = path.join(
@@ -93,6 +95,7 @@ async function readFileUsers(): Promise<AuthUser[]> {
           campus: campusForEmail(String(user.email).trim().toLowerCase(), user.campus),
           passwordHash: user.passwordHash,
           source: "file" as const,
+          schedule: parseSchedule(user.schedule),
         },
       ];
     });
@@ -126,14 +129,28 @@ async function saveStoredUsers(stored: AuthUser[]): Promise<void> {
   }
   const merged = new Map<string, AuthUser>();
   for (const user of stored) merged.set(user.email, user);
-  for (const user of parseEnvUsers(process.env.AUTH_USERS)) merged.set(user.email, user);
+  for (const user of parseEnvUsers(process.env.AUTH_USERS)) {
+    merged.set(user.email, mergeUser(merged.get(user.email), user));
+  }
   await writeUsersToSheets([...merged.values()]);
+}
+
+function mergeUser(base: AuthUser | undefined, next: AuthUser): AuthUser {
+  return {
+    ...base,
+    ...next,
+    schedule: next.schedule ?? base?.schedule,
+    passwordHash: next.passwordHash || base?.passwordHash,
+    password: next.password || base?.password,
+  };
 }
 
 export async function listUsers(): Promise<AuthUser[]> {
   const map = new Map<string, AuthUser>();
   for (const user of await loadStoredUsers()) map.set(user.email, user);
-  for (const user of parseEnvUsers(process.env.AUTH_USERS)) map.set(user.email, user);
+  for (const user of parseEnvUsers(process.env.AUTH_USERS)) {
+    map.set(user.email, mergeUser(map.get(user.email), user));
+  }
   return [...map.values()];
 }
 
@@ -150,7 +167,14 @@ export async function authenticateUser(
   if (!user) return null;
   const stored = user.passwordHash ?? user.password;
   if (!stored || !verifyPassword(password, stored)) return null;
-  return { email: user.email, name: user.name, role: user.role, campus: user.campus, source: user.source };
+  return {
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    campus: user.campus,
+    source: user.source,
+    schedule: user.schedule,
+  };
 }
 
 export async function createUser(input: {
@@ -178,6 +202,30 @@ export async function createUser(input: {
   return next;
 }
 
+export async function updateUserSchedule(email: string, schedule: EditorSchedule | undefined): Promise<AuthUser> {
+  const needle = email.trim().toLowerCase();
+  const current = await findUserByEmail(needle);
+  if (!current) throw new Error("Usuario no encontrado");
+  if (current.role !== "EDITOR") {
+    throw new Error("El horario solo aplica a usuarios editores");
+  }
+  const stored = await loadStoredUsers();
+  const nextUser: AuthUser = {
+    ...current,
+    email: needle,
+    password: undefined,
+    schedule,
+    source: current.source,
+  };
+  const index = stored.findIndex((user) => user.email === needle);
+  if (index >= 0) stored[index] = { ...stored[index], ...nextUser, passwordHash: stored[index].passwordHash || current.passwordHash };
+  else stored.push({ ...nextUser, passwordHash: current.passwordHash });
+  await saveStoredUsers(stored);
+  const saved = await findUserByEmail(needle);
+  if (!saved) throw new Error("No se pudo guardar el horario");
+  return saved;
+}
+
 export async function deleteUser(email: string): Promise<void> {
   const needle = email.trim().toLowerCase();
   const envHit = parseEnvUsers(process.env.AUTH_USERS).find((user) => user.email === needle);
@@ -199,5 +247,6 @@ export function publicUser(user: AuthUser) {
     role: user.role,
     campus: user.campus,
     source: user.source,
+    schedule: user.schedule,
   };
 }

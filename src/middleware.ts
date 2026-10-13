@@ -23,6 +23,18 @@ export default auth((req) => {
     return NextResponse.redirect(login);
   }
 
+  if (role === "EDITOR") {
+    const until = Number(req.auth?.user?.accessUntil ?? 0);
+    if (!until || Date.now() >= until) {
+      if (isApi) {
+        return NextResponse.json({ error: "Fuera de horario" }, { status: 401 });
+      }
+      const login = new URL("/login", req.nextUrl);
+      login.searchParams.set("error", "horario");
+      return NextResponse.redirect(login);
+    }
+  }
+
   if (!hasPermission(role, permission)) {
     if (isApi) {
       return NextResponse.json(

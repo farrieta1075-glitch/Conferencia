@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { EditorAccessGuard } from "./auth/EditorAccessGuard";
 import { Header } from "./Header";
 import { Nav } from "./Nav";
 import { RegisterSW } from "./RegisterSW";
@@ -38,6 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex h-dvh flex-col overflow-hidden bg-navy">
         <RegisterSW />
         <SyncPwaIcon />
+        <EditorAccessGuard />
         <Header compact={isSales} />
         <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden lg:flex-row phone-landscape:flex-row">
           <Nav />

@@ -3,6 +3,14 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ROLES, roleLabel, type Role } from "@/lib/auth/roles";
+import {
+  WEEKDAYS,
+  mexicoParts,
+  parseSchedule,
+  scheduleLabel,
+  type EditorSchedule,
+  type WeekdayId,
+} from "@/lib/auth/schedule";
 import { CAMPUSES, campusLabel, type Campus } from "@/lib/campus";
 import { apiFetch } from "@/lib/api/client";
 import { useCampus } from "@/context/CampusContext";
@@ -13,6 +21,7 @@ interface PublicUser {
   role: Role;
   campus: Campus;
   source: "env" | "file";
+  schedule?: EditorSchedule;
 }
 
 export default function UsuariosAdminPage() {
@@ -29,6 +38,7 @@ export default function UsuariosAdminPage() {
   const [filterName, setFilterName] = useState("");
   const [filterCampus, setFilterCampus] = useState<Campus | "">("");
   const [filterRole, setFilterRole] = useState<Role | "">("");
+  const [scheduleUser, setScheduleUser] = useState<PublicUser | null>(null);
 
   const filtered = useMemo(() => {
     const needle = filterName.trim().toLowerCase();
@@ -159,6 +169,7 @@ export default function UsuariosAdminPage() {
               <th className="pb-2">Rol</th>
               <th className="pb-2">Campus</th>
               <th className="pb-2">Origen</th>
+              <th className="pb-2">Horario</th>
               <th className="pb-2" />
             </tr>
           </thead>
@@ -172,6 +183,21 @@ export default function UsuariosAdminPage() {
                 <td>{roleLabel(user.role)}</td>
                 <td>{campusLabel(user.campus)}</td>
                 <td>{user.source === "env" ? "Inicial" : "App"}</td>
+                <td>
+                  {user.role === "EDITOR" ? (
+                    <button
+                      type="button"
+                      className="btn-ghost px-3 text-left"
+                      onClick={() => setScheduleUser(user)}
+                    >
+                      {scheduleLabel(user.schedule)}
+                    </button>
+                  ) : user.role === "PRACTICE" ? (
+                    <span className="text-xs text-ink-muted">Sin restricción</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td>
                   {user.source === "file" ? (
                     <button
@@ -190,7 +216,7 @@ export default function UsuariosAdminPage() {
             ))}
             {!filtered.length ? (
               <tr>
-                <td colSpan={5} className="py-3 text-ink-muted">
+                <td colSpan={6} className="py-3 text-ink-muted">
                   No hay usuarios con ese filtro.
                 </td>
               </tr>
@@ -280,6 +306,148 @@ export default function UsuariosAdminPage() {
             document.body,
           )
         : null}
+
+      {scheduleUser
+        ? createPortal(
+            <EditorScheduleModal
+              user={scheduleUser}
+              busy={busy}
+              error={error}
+              onClose={() => {
+                setScheduleUser(null);
+                setError("");
+              }}
+              onSave={async (schedule) => {
+                setBusy(true);
+                setError("");
+                try {
+                  await apiFetch(`/api/users/${encodeURIComponent(scheduleUser.email)}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ schedule }),
+                  });
+                  setScheduleUser(null);
+                  await load();
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "No se pudo guardar el horario");
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+function EditorScheduleModal({
+  user,
+  busy,
+  error,
+  onClose,
+  onSave,
+}: {
+  user: PublicUser;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onSave: (schedule: EditorSchedule | null) => Promise<void>;
+}) {
+  const today = mexicoParts().date;
+  const initial = user.schedule;
+  const [mode, setMode] = useState<"once" | "weekly">(initial?.mode ?? "once");
+  const [start, setStart] = useState(initial?.start ?? "09:30");
+  const [end, setEnd] = useState(initial?.end ?? "09:50");
+  const [days, setDays] = useState<WeekdayId[]>(initial?.days ?? []);
+
+  function toggleDay(id: WeekdayId) {
+    setDays((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id].sort((a, b) => a - b),
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-navy/70 p-3 sm:items-center" onClick={onClose}>
+      <form
+        className="card max-h-[92dvh] w-full max-w-lg overflow-y-auto p-5"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const payload =
+            mode === "once"
+              ? { mode: "once" as const, date: today, start, end }
+              : { mode: "weekly" as const, days, start, end };
+          const parsed = parseSchedule(payload);
+          if (!parsed) return;
+          void onSave(parsed);
+        }}
+      >
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <h3 className="font-display text-2xl">Horario de acceso</h3>
+            <p className="text-sm text-ink-muted">
+              {user.name} · {user.email}
+            </p>
+          </div>
+          <button type="button" className="btn-ghost" onClick={onClose}>
+            Cerrar
+          </button>
+        </div>
+        <p className="mb-3 text-sm text-ink-muted">
+          El editor solo puede entrar en la ventana que indiques (hora de Ciudad de México). Al terminar se
+          cierra la sesión y no podrá volver a entrar hasta el siguiente horario permitido.
+        </p>
+        <div className="grid gap-3">
+          <label className="text-sm font-medium text-ink-muted">
+            Tipo
+            <select className="field mt-1" value={mode} onChange={(event) => setMode(event.target.value as "once" | "weekly")}>
+              <option value="once">Solo hoy</option>
+              <option value="weekly">Días de la semana</option>
+            </select>
+          </label>
+          {mode === "weekly" ? (
+            <fieldset>
+              <legend className="text-sm font-medium text-ink-muted">Días permitidos</legend>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {WEEKDAYS.map((day) => (
+                  <label key={day.id} className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={days.includes(day.id)}
+                      onChange={() => toggleDay(day.id)}
+                    />
+                    {day.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            <p className="text-sm text-ink-muted">Válido únicamente el {today}.</p>
+          )}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm font-medium text-ink-muted">
+              Desde
+              <input className="field mt-1" type="time" required value={start} onChange={(event) => setStart(event.target.value)} />
+            </label>
+            <label className="text-sm font-medium text-ink-muted">
+              Hasta
+              <input className="field mt-1" type="time" required value={end} onChange={(event) => setEnd(event.target.value)} />
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? "Guardando…" : "Guardar horario"}
+            </button>
+            {user.schedule ? (
+              <button type="button" className="btn-ghost" disabled={busy} onClick={() => void onSave(null)}>
+                Quitar horario
+              </button>
+            ) : null}
+          </div>
+          {error ? <p className="text-sm text-sold">{error}</p> : null}
+        </div>
+      </form>
     </div>
   );
 }

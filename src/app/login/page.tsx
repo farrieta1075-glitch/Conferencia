@@ -9,7 +9,13 @@ function LoginForm() {
   const params = useSearchParams();
   const [email, setEmail] = useState("admin@auditorio.local");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState(params.get("error") ? "Credenciales incorrectas" : "");
+  const [error, setError] = useState(
+    params.get("error") === "horario"
+      ? "Fuera de horario. Pide a un administrador que te asigne un horario de acceso."
+      : params.get("error")
+        ? "Credenciales incorrectas"
+        : "",
+  );
   const [busy, setBusy] = useState(false);
   const callbackUrl = params.get("callbackUrl") || "/";
 
@@ -24,7 +30,12 @@ function LoginForm() {
       redirect: false,
     });
     if (result?.error) {
-      setError("Correo o contraseña incorrectos.");
+      const code = "code" in result ? String(result.code ?? "") : "";
+      setError(
+        code === "horario" || result.error === "horario"
+          ? "Fuera de horario. Pide a un administrador que te asigne un horario de acceso."
+          : "Correo o contraseña incorrectos.",
+      );
       setBusy(false);
       return;
     }

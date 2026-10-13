@@ -1,4 +1,5 @@
 import { parseRole, type Role } from "@/lib/auth/roles";
+import { parseSchedule, type EditorSchedule } from "@/lib/auth/schedule";
 import { DEFAULT_CAMPUS, parseCampus, type Campus } from "@/lib/campus";
 import {
   ensureTabs,
@@ -14,9 +15,48 @@ export interface SheetAuthUser {
   campus: Campus;
   passwordHash?: string;
   source: "env" | "file";
+  schedule?: EditorSchedule;
 }
 
-const HEADERS = ["correo", "nombre", "rol", "origen", "hash", "campus"] as const;
+const HEADERS = [
+  "correo",
+  "nombre",
+  "rol",
+  "origen",
+  "hash",
+  "campus",
+  "horario_tipo",
+  "horario_dias",
+  "horario_inicio",
+  "horario_fin",
+  "horario_fecha",
+] as const;
+
+function serializeSchedule(schedule?: EditorSchedule) {
+  if (!schedule) return ["", "", "", "", ""];
+  return [
+    schedule.mode,
+    (schedule.days ?? []).join("|"),
+    schedule.start,
+    schedule.end,
+    schedule.date ?? "",
+  ];
+}
+
+function parseRowSchedule(row: string[]): EditorSchedule | undefined {
+  return parseSchedule({
+    mode: row[6],
+    days: String(row[7] ?? "")
+      .split("|")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => Number(item))
+      .filter((item) => Number.isInteger(item)),
+    start: row[8],
+    end: row[9],
+    date: row[10],
+  });
+}
 
 async function replaceUsersTab(values: string[][]) {
   const spreadsheetId = await getSpreadsheetId();
@@ -43,29 +83,28 @@ export async function readUsersFromSheets(): Promise<SheetAuthUser[]> {
   const sheets = getSheets();
   const result = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: "Usuarios!A:F",
+    range: "Usuarios!A:K",
   });
   const rows = (result.data.values ?? []).slice(1);
   return rows.flatMap((row) => {
-    const email = String(row[0] ?? "")
-      .trim()
-      .toLowerCase();
-    const name = String(row[1] ?? "").trim();
-    const role = parseRole(row[2]);
-    const origin = String(row[3] ?? "")
-      .trim()
-      .toLowerCase();
-    const passwordHash = String(row[4] ?? "").trim();
-    const campus = parseCampus(row[5]) ?? (email === "admin@auditorio.local" ? "ALL" : DEFAULT_CAMPUS);
-    if (!email || !role || origin === "env" || !passwordHash) return [];
+    const cells = row.map((cell) => String(cell ?? "").trim());
+    const email = cells[0]?.toLowerCase() ?? "";
+    const name = cells[1] ?? "";
+    const role = parseRole(cells[2]);
+    const origin = (cells[3] ?? "").toLowerCase();
+    const passwordHash = cells[4] ?? "";
+    const campus = parseCampus(cells[5]) ?? (email === "admin@auditorio.local" ? "ALL" : DEFAULT_CAMPUS);
+    if (!email || !role) return [];
+    if (origin !== "env" && !passwordHash) return [];
     return [
       {
         email,
         name: name || email,
         role,
         campus,
-        passwordHash,
-        source: "file" as const,
+        passwordHash: origin === "env" ? undefined : passwordHash,
+        source: origin === "env" ? ("env" as const) : ("file" as const),
+        schedule: parseRowSchedule(cells),
       },
     ];
   });
@@ -84,6 +123,7 @@ export async function writeUsersToSheets(users: SheetAuthUser[]): Promise<void> 
       user.source,
       user.source === "file" ? user.passwordHash ?? "" : "",
       user.campus ?? (user.email === "admin@auditorio.local" ? "ALL" : DEFAULT_CAMPUS),
+      ...serializeSchedule(user.schedule),
     ]),
   ]);
 }

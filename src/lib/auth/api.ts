@@ -20,6 +20,12 @@ export async function requirePermission(permission: Permission) {
   if (!hasPermission(role, permission)) {
     throw new HttpError(403, "Forbidden: no tienes permisos suficientes");
   }
+  if (role === "EDITOR") {
+    const until = Number(session.user.accessUntil ?? 0);
+    if (!until || Date.now() >= until) {
+      throw new HttpError(401, "Fuera de horario");
+    }
+  }
   return { session, role, user: session.user };
 }
 

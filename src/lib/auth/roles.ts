@@ -32,10 +32,18 @@ const EDITOR_PERMISSIONS = [
   "payments:complete",
 ] as const;
 
+const LIVE_EDITOR_PERMISSIONS = [
+  "maps:read",
+  "sales:create",
+  "tickets:read",
+  "tickets:edit",
+  "payments:complete",
+] as const;
+
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
   VIEWER: ["maps:read", "seats:read"],
   PRACTICE: EDITOR_PERMISSIONS,
-  EDITOR: [...EDITOR_PERMISSIONS, "sheets:sync"],
+  EDITOR: [...LIVE_EDITOR_PERMISSIONS, "sheets:sync"],
   ADMIN: PERMISSIONS,
 };
 
