@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant phone-landscape (@media (orientation: landscape) and (max-height: 520px) and (max-width: 1023px));
+
 @theme {
   --color-navy: #0b132b;
   --color-navy-mid: #1c2541;
@@ -105,4 +107,25 @@ body {
   outline: 2px solid #9a6b43;
   outline-offset: 1px;
   background: white;
+}
+
+@media (orientation: landscape) and (max-height: 520px) and (max-width: 1023px) {
+  header .btn-ghost {
+    min-height: 1.75rem;
+    min-width: auto;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.7rem;
+    border-radius: 0.65rem;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .field {
+    min-height: 2.15rem;
+  }
+
+  main .card {
+    border-radius: 0.85rem;
+  }
 }

@@ -333,15 +333,15 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   return (
     <div className="card flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2 max-[1100px]:landscape:py-1">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2 phone-landscape:gap-1 phone-landscape:px-2 phone-landscape:py-0.5">
         <div className="min-w-0">
-          <p className="text-[10px] uppercase tracking-wider text-bronze-dark sm:text-xs">{mapTitle}</p>
-          <h2 className="font-display truncate text-lg text-ink sm:text-xl lg:text-2xl">Auditorio Nacional</h2>
+          <p className="text-[10px] uppercase tracking-wider text-bronze-dark sm:text-xs phone-landscape:hidden">{mapTitle}</p>
+          <h2 className="font-display truncate text-lg text-ink sm:text-xl lg:text-2xl phone-landscape:text-sm">Auditorio Nacional</h2>
         </div>
-        <div className="relative z-20 flex gap-1.5 sm:gap-2">
+        <div className="relative z-20 flex gap-1.5 sm:gap-2 phone-landscape:gap-1">
           <button
             type="button"
-            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4"
+            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:min-w-8 phone-landscape:px-2 phone-landscape:text-base"
             onPointerUp={handleZoomIn}
             onClick={handleZoomIn}
           >
@@ -349,7 +349,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           </button>
           <button
             type="button"
-            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4"
+            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:min-w-8 phone-landscape:px-2 phone-landscape:text-base"
             onPointerUp={handleZoomOut}
             onClick={handleZoomOut}
           >
@@ -357,7 +357,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           </button>
           <button
             type="button"
-            className="btn-ghost min-h-11 px-3 sm:min-h-12 sm:px-4"
+            className="btn-ghost min-h-11 px-3 sm:min-h-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:px-2 phone-landscape:text-xs"
             onPointerUp={handleResetTap}
             onClick={handleResetTap}
           >

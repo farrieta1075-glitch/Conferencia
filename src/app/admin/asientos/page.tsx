@@ -88,7 +88,7 @@ export default function AsientosAdminPage() {
     <div className="space-y-4">
       <div className="card p-5">
         <p className="text-xs uppercase tracking-wider text-bronze-dark">Asientos</p>
-        <h2 className="font-display text-3xl">Asignación de áreas y asientos</h2>
+        <h2 className="font-display text-3xl phone-landscape:text-xl">Asignación de áreas y asientos</h2>
         <p className="mt-2 text-sm text-ink-muted">
           Verde = a la venta. Gris = no asignado (incluye asientos de otro campus, que no se
           pueden asignar aquí). Los cambios son un borrador hasta pulsar{" "}

@@ -116,7 +116,7 @@ export function CurvedSeatMap({
       </div>
     <svg
       viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-      className="h-[min(68vh,760px)] w-full touch-none rounded-2xl bg-navy-deep max-[1100px]:landscape:h-[min(100dvh-12rem,560px)]"
+      className="h-[min(68vh,760px)] w-full touch-none rounded-2xl bg-navy-deep phone-landscape:h-[calc(100dvh-5.5rem)]"
       role="img"
       aria-label={`Asientos curvos de la sección ${sectionId}`}
       onPointerDown={onPointerDown}

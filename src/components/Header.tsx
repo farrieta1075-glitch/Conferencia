@@ -58,28 +58,28 @@ export function Header({ compact = false }: { compact?: boolean }) {
   return (
     <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-navy/95 text-white backdrop-blur">
       <div
-        className={`mx-auto flex max-w-7xl px-3 sm:px-4 ${
+        className={`mx-auto flex max-w-7xl px-3 sm:px-4 phone-landscape:px-2 ${
           compact
-            ? "flex-row items-center justify-between gap-2 py-1.5 sm:gap-3 sm:py-2 max-[1100px]:landscape:py-1"
-            : "flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between max-[1100px]:landscape:flex-row max-[1100px]:landscape:items-center max-[1100px]:landscape:gap-2 max-[1100px]:landscape:py-1.5"
+            ? "flex-row items-center justify-between gap-2 py-1.5 sm:gap-3 sm:py-2 phone-landscape:gap-1.5 phone-landscape:py-0.5"
+            : "flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between phone-landscape:flex-row phone-landscape:items-center phone-landscape:gap-1.5 phone-landscape:py-0.5"
         }`}
       >
-        <div className={`flex min-w-0 items-center gap-2 sm:gap-3 ${compact ? "min-h-9" : "min-h-12 max-[1100px]:landscape:min-h-10"}`}>
+        <div className={`flex min-w-0 items-center gap-2 sm:gap-3 phone-landscape:gap-1.5 ${compact ? "min-h-9 phone-landscape:min-h-7" : "min-h-12 phone-landscape:min-h-7"}`}>
           {state.event.logoDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={state.event.logoDataUrl}
               alt={`Logo de ${state.event.name}`}
-              className={`rounded-2xl object-cover ring-1 ring-bronze/50 ${compact ? "h-9 w-9 sm:h-11 sm:w-11" : "h-12 w-12 max-[1100px]:landscape:h-10 max-[1100px]:landscape:w-10"}`}
+              className={`rounded-2xl object-cover ring-1 ring-bronze/50 ${compact ? "h-9 w-9 sm:h-11 sm:w-11 phone-landscape:h-7 phone-landscape:w-7" : "h-12 w-12 phone-landscape:h-7 phone-landscape:w-7"}`}
             />
           ) : (
-            <LogoMark className={compact ? "h-9 w-9 sm:h-11 sm:w-11" : "h-12 w-12 max-[1100px]:landscape:h-10 max-[1100px]:landscape:w-10"} />
+            <LogoMark className={compact ? "h-9 w-9 sm:h-11 sm:w-11 phone-landscape:h-7 phone-landscape:w-7" : "h-12 w-12 phone-landscape:h-7 phone-landscape:w-7"} />
           )}
           <div className="min-w-0">
-            <p className={`uppercase tracking-[0.18em] text-bronze ${compact ? "hidden text-[10px] sm:block" : "text-[11px] max-[1100px]:landscape:hidden"}`}>
+            <p className={`uppercase tracking-[0.18em] text-bronze ${compact ? "hidden text-[10px] sm:block phone-landscape:hidden" : "text-[11px] phone-landscape:hidden"}`}>
               Auditorio Nacional · CDMX
             </p>
-            <h1 className={`font-display leading-tight ${compact ? "truncate text-base sm:text-xl" : "text-xl md:text-2xl"}`}>
+            <h1 className={`font-display leading-tight ${compact ? "truncate text-base sm:text-xl phone-landscape:text-sm" : "text-xl md:text-2xl phone-landscape:truncate phone-landscape:text-sm"}`}>
               {state.event.name}
             </h1>
           </div>
@@ -87,17 +87,17 @@ export function Header({ compact = false }: { compact?: boolean }) {
 
         {compact ? (
           <>
-            <div className="flex min-h-9 shrink-0 items-center rounded-2xl bg-bronze px-2.5 py-1 text-white sm:min-h-10 sm:px-3 sm:py-1.5">
+            <div className="flex min-h-9 shrink-0 items-center rounded-2xl bg-bronze px-2.5 py-1 text-white sm:min-h-10 sm:px-3 sm:py-1.5 phone-landscape:min-h-7 phone-landscape:rounded-lg phone-landscape:px-2 phone-landscape:py-0.5">
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-white/80">
+                <p className="text-[10px] uppercase tracking-wider text-white/80 phone-landscape:text-[8px]">
                   {focus?.sectionId ? `Disp. · ${focus.sectionId}` : "Disponibles"}
                 </p>
-                <p className="font-display text-xl leading-none sm:text-2xl">{shownAvailable}</p>
+                <p className="font-display text-xl leading-none sm:text-2xl phone-landscape:text-base">{shownAvailable}</p>
               </div>
             </div>
           </>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 max-[1100px]:landscape:hidden">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 phone-landscape:hidden">
             <div className="flex min-h-12 items-center justify-between rounded-2xl bg-navy-mid px-3 py-2 sm:block">
               <p className="text-[10px] uppercase tracking-wider text-slate-300">Ahora</p>
               <p className="text-sm font-semibold tabular-nums">
@@ -135,8 +135,8 @@ export function Header({ compact = false }: { compact?: boolean }) {
           </div>
         )}
         {session?.user && (
-          <div className={`flex shrink-0 items-center gap-2 rounded-2xl bg-navy-mid px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2 ${compact ? "" : "justify-between lg:flex-col lg:items-end"}`}>
-            <div className={compact ? "hidden text-right sm:block" : "text-right"}>
+          <div className={`flex shrink-0 items-center gap-2 rounded-2xl bg-navy-mid px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2 phone-landscape:gap-1 phone-landscape:rounded-lg phone-landscape:px-1.5 phone-landscape:py-0.5 ${compact ? "" : "justify-between lg:flex-col lg:items-end phone-landscape:flex-row phone-landscape:items-center"}`}>
+            <div className={compact ? "hidden text-right sm:block phone-landscape:hidden" : "text-right phone-landscape:hidden"}>
               <p className="text-sm font-semibold">{session.user.email}</p>
               <p className="text-[10px] uppercase tracking-wider text-bronze">
                 {session.user.role ? roleLabel(session.user.role) : ""} · {campusLabel(campus)}
@@ -161,9 +161,11 @@ export function Header({ compact = false }: { compact?: boolean }) {
                 </p>
               ) : null}
             </div>
-            {compact && canSwitch ? (
+            {canSwitch ? (
               <select
-                className="min-h-9 max-w-20 rounded-lg bg-navy px-1 text-[10px] text-white sm:hidden"
+                className={`max-w-20 rounded-lg bg-navy px-1 text-[10px] text-white phone-landscape:min-h-7 ${
+                  compact ? "min-h-9 sm:hidden phone-landscape:!flex" : "hidden phone-landscape:!flex"
+                }`}
                 value={campus}
                 onChange={(event) => setCampus(event.target.value as typeof campus)}
                 aria-label="Campus"

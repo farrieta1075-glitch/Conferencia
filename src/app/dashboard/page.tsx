@@ -199,19 +199,19 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div>
+    <div className="space-y-4 phone-landscape:space-y-2">
+      <div className="phone-landscape:hidden">
         <p className="text-[10px] uppercase tracking-wider text-bronze-dark">Dashboard e indicadores</p>
         <p className="text-sm text-ink-muted">Campus {campus}</p>
       </div>
 
-      <section className="grid gap-3 md:grid-cols-2">
-        <article className="card p-5">
+      <section className="grid gap-3 md:grid-cols-2 phone-landscape:grid-cols-2 phone-landscape:gap-2">
+        <article className="card p-5 phone-landscape:p-3">
           <p className="text-sm text-ink-muted">Por vender</p>
           <p className="font-display text-3xl">{metrics.goalSeats} asientos</p>
           <p className="text-lg font-semibold">{money(metrics.goalMoney)}</p>
         </article>
-        <article className="card p-5">
+        <article className="card p-5 phone-landscape:p-3">
           <p className="text-sm text-ink-muted">A la fecha</p>
           <p className="font-display text-3xl">{metrics.committedSeats} asientos</p>
           <p className="text-sm text-available">Recibido {money(metrics.cobrado)}</p>
@@ -251,9 +251,9 @@ export default function DashboardPage() {
         <Stat label="No asignados" value={metrics.counts.unassigned} color="text-ink-muted" />
       </section>
 
-      <section className="card p-5">
+      <section className="card p-5 phone-landscape:p-3">
         <button type="button" className="flex w-full items-center justify-between" onClick={() => setCobrosOpen((v) => !v)}>
-          <h3 className="font-display text-2xl">Próximos cobros</h3>
+          <h3 className="font-display text-2xl phone-landscape:text-xl">Próximos cobros</h3>
           <span className="text-sm text-ink-muted">{cobrosOpen ? "Ocultar" : "Ver"}</span>
         </button>
         {cobrosOpen ? (
@@ -417,9 +417,9 @@ function Stat({
   color: string;
 }) {
   return (
-    <article className="card p-5">
+    <article className="card p-5 phone-landscape:p-3">
       <p className="text-sm text-ink-muted">{label}</p>
-      <p className={`font-display text-4xl ${color}`}>{value}</p>
+      <p className={`font-display text-4xl phone-landscape:text-2xl ${color}`}>{value}</p>
     </article>
   );
 }

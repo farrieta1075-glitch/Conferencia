@@ -40,7 +40,7 @@ export default function PreciosAdminPage() {
     <div className="space-y-4">
       <section className="card p-5">
         <p className="text-xs uppercase tracking-wider text-bronze-dark">Módulo 3 · Admin</p>
-        <h2 className="font-display text-3xl">Precios por área</h2>
+        <h2 className="font-display text-3xl phone-landscape:text-xl">Precios por área</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {state.prices.map((item) => (
             <PriceField

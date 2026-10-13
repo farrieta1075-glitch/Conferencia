@@ -72,7 +72,7 @@ export default function UsuariosAdminPage() {
     <div className="space-y-4">
       <section className="card p-5">
         <p className="text-xs uppercase tracking-wider text-bronze-dark">ADMIN</p>
-        <h2 className="font-display text-3xl">Usuarios y roles</h2>
+        <h2 className="font-display text-3xl phone-landscape:text-xl">Usuarios y roles</h2>
         <p className="mt-2 text-sm text-ink-muted">
           ADMIN gestiona cuentas. Los usuarios creados aquí se graban en la hoja Usuarios de
           Google Sheets. EDITOR guarda ventas y asientos en la hoja. Editor de práctica ve y
