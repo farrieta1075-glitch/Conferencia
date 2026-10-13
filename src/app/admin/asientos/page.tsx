@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CurvedSeatMap } from "@/components/CurvedSeatMap";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CurvedSeatMap, type CurvedSeatMapHandle } from "@/components/CurvedSeatMap";
 import { ImportTabulador } from "@/components/ImportTabulador";
-import { SeatLegend } from "@/components/SeatLegend";
 import { RoleGate, useCan } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
 import { seatId } from "@/lib/format";
@@ -22,6 +21,7 @@ export default function AsientosAdminPage() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const mapRef = useRef<CurvedSeatMapHandle>(null);
   const located = sectionId ? findSection(state.tabulador, sectionId) : null;
 
   useEffect(() => {
@@ -100,14 +100,38 @@ export default function AsientosAdminPage() {
                 <p className="font-display text-xl">
                   {located.area.name} {located.section.id}
                 </p>
-                <SeatLegend />
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-semibold"
+                    onClick={() => mapRef.current?.zoomIn()}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-semibold"
+                    onClick={() => mapRef.current?.zoomOut()}
+                  >
+                    −
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold"
+                    onClick={() => mapRef.current?.reset()}
+                  >
+                    Ver todo
+                  </button>
+                </div>
               </div>
               <div className="min-h-0 flex-1">
                 <CurvedSeatMap
+                  ref={mapRef}
                   sectionId={sectionId}
                   selectedIds={[]}
                   onSeatClick={toggle}
                   statusOf={statusOfDraft}
+                  hideControls
                 />
               </div>
               <RoleGate allow="seats:edit">

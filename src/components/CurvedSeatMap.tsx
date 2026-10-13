@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef } from "react";
 import { useEventStore } from "@/context/EventStore";
 import { COLORS } from "@/lib/constants";
 import { aisleStripPath, polar, polarAtFraction, buildSectionGeometry } from "@/lib/geometry";
@@ -19,11 +19,18 @@ const STATUS_FILL: Record<SeatStatus, string> = {
   sold: COLORS.sold,
 };
 
+export interface CurvedSeatMapHandle {
+  zoomIn: () => void;
+  zoomOut: () => void;
+  reset: () => void;
+}
+
 interface CurvedSeatMapProps {
   sectionId: string;
   selectedIds?: string[];
   onSeatClick?: (id: string, status: SeatStatus) => void;
   statusOf?: (id: string) => SeatStatus;
+  hideControls?: boolean;
 }
 
 function detailGeometry(
@@ -55,17 +62,30 @@ function slotLabel(slot: SeatSlot): string {
   return `Asiento ${slot.number}`;
 }
 
-export function CurvedSeatMap({
-  sectionId,
-  selectedIds = [],
-  onSeatClick,
-  statusOf: statusOfProp,
-}: CurvedSeatMapProps) {
+export const CurvedSeatMap = forwardRef<CurvedSeatMapHandle, CurvedSeatMapProps>(function CurvedSeatMap(
+  {
+    sectionId,
+    selectedIds = [],
+    onSeatClick,
+    statusOf: statusOfProp,
+    hideControls = false,
+  },
+  ref,
+) {
   const { state, statusOf: statusOfStore } = useEventStore();
   const statusOf = statusOfProp ?? statusOfStore;
   const viewRef = useRef({ x: 0, y: 0, w: 800, h: 600 });
   const { transform, onPointerDown, onPointerMove, onPointerUp, onWheel, zoomAt, reset, liveGroupRef } =
     usePanZoom({ x: 0, y: 0, k: 1 }, viewRef);
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomIn: () => zoomAt(1.35),
+      zoomOut: () => zoomAt(0.75),
+      reset,
+    }),
+    [reset, zoomAt],
+  );
   const located = findSection(state.tabulador, sectionId);
   const baseGeometry = useMemo(
     () => buildSectionGeometry(state.tabulador).find((item) => item.sectionId === sectionId),
@@ -99,21 +119,23 @@ export function CurvedSeatMap({
   viewRef.current = { x: viewX, y: viewY, w: viewW, h: viewH };
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        <button type="button" className="btn-ghost min-h-9 min-w-9 px-3 text-base" onClick={() => zoomAt(1.35)}>
-          +
-        </button>
-        <button type="button" className="btn-ghost min-h-9 min-w-9 px-3 text-base" onClick={() => zoomAt(0.75)}>
-          −
-        </button>
-        <button type="button" className="btn-ghost min-h-9 px-3 text-sm" onClick={reset}>
-          Ver todo
-        </button>
-      </div>
+    <div className={hideControls ? "" : "space-y-2"}>
+      {hideControls ? null : (
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" className="btn-ghost min-h-9 min-w-9 px-3 text-base" onClick={() => zoomAt(1.35)}>
+            +
+          </button>
+          <button type="button" className="btn-ghost min-h-9 min-w-9 px-3 text-base" onClick={() => zoomAt(0.75)}>
+            −
+          </button>
+          <button type="button" className="btn-ghost min-h-9 px-3 text-sm" onClick={reset}>
+            Ver todo
+          </button>
+        </div>
+      )}
     <svg
       viewBox={`${viewX} ${viewY} ${viewW} ${viewH}`}
-      className="h-[min(58vh,640px)] w-full touch-none rounded-2xl bg-navy-deep phone-landscape:h-[calc(100dvh-9rem)]"
+      className="h-[min(64vh,720px)] w-full touch-none rounded-2xl bg-navy-deep phone-landscape:h-[calc(100dvh-8rem)]"
       role="img"
       aria-label={`Asientos curvos de la sección ${sectionId}`}
       onPointerDown={onPointerDown}
@@ -284,4 +306,4 @@ export function CurvedSeatMap({
     </svg>
     </div>
   );
-}
+});
