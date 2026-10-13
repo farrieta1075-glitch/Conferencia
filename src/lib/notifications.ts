@@ -40,7 +40,7 @@ export const notificationHooks: NotificationScheduler = {
 };
 
 export function whatsAppDigits(phone: string): string {
-  let digits = phone.replace(/\D/g, "");
+  const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("52") && digits.length >= 12) return digits;
   if (digits.length === 10) return `52${digits}`;
   return digits;
