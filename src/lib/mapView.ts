@@ -30,7 +30,17 @@ export function sectionContains(geo: SectionGeometry, r: number, theta: number) 
 
 export function sectionAtPoint(geometries: SectionGeometry[], x: number, y: number) {
   const { r, theta } = xyToPolar(x, y);
-  return geometries.find((geo) => sectionContains(geo, r, theta)) ?? null;
+  let best: SectionGeometry | null = null;
+  let bestSpan = Infinity;
+  for (const geo of geometries) {
+    if (!sectionContains(geo, r, theta)) continue;
+    const span = Math.abs(geo.thetaEnd - geo.thetaStart);
+    if (span < bestSpan) {
+      best = geo;
+      bestSpan = span;
+    }
+  }
+  return best;
 }
 
 function thetaOverlap(a: SectionGeometry, b: SectionGeometry) {

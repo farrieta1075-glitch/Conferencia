@@ -16,7 +16,7 @@ import {
   stagePath,
   walkwayPath,
 } from "@/lib/geometry";
-import { boundsOf, findNeighbors, sectionAtPoint, viewToMap } from "@/lib/mapView";
+import { boundsOf, findNeighbors, sectionAtPoint, viewMapBounds, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
 import { findPurchaseBySeat, isNamelessBlock } from "@/lib/purchases";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
@@ -228,7 +228,9 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     const centroid = sectionCentroid(geo);
     setProbe({ x: centroid.x, y: centroid.y });
     const box = boundsOf([geo]);
-    fitBounds(box.minX, box.minY, box.maxX, box.maxY);
+    const span = Math.max(box.maxX - box.minX, box.maxY - box.minY, 1);
+    const pad = Math.max(40, span * 0.28);
+    fitBounds(box.minX - pad, box.minY - pad, box.maxX + pad, box.maxY + pad);
   }
 
   const fittedFromUrl = useRef<string | null>(null);
@@ -245,6 +247,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const peekSectionIds = new Set(
     peek?.purchase.tickets.map((ticket) => parseSeatId(ticket.seatId).sectionId) ?? [],
   );
+  const mapView = viewMapBounds(transform);
   const selectedSeats = selected
     .map((id) => seatIndex.get(id))
     .filter((seat): seat is SeatRef => Boolean(seat));
@@ -425,7 +428,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
               const showingSeats = seatFocus.ids.has(geo.sectionId) || peekSectionIds.has(geo.sectionId);
               const fill = isPit ? "#C5CAD3" : onSale ? COLORS.saleZoneActive : "#1E4BA8";
               const fontSize = Math.max(
-                8 / Math.sqrt(transform.k),
+                (angular < 0.18 ? 11 : 8) / Math.sqrt(transform.k),
                 Math.min(16, angular * 42 + (geo.rOuter - geo.rInner) / 18) /
                   Math.sqrt(transform.k),
               );
@@ -437,7 +440,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                     data-section-id={geo.sectionId}
                     fill={showingSeats ? "#0A1628" : fill}
                     stroke={isActive ? "#E8C39A" : "#F4F7FB"}
-                    strokeWidth={(isActive ? 1.6 : 0.7) / transform.k}
+                    strokeWidth={(isActive ? 1.6 : angular < 0.18 ? 1.15 : 0.7) / transform.k}
                     className="cursor-pointer"
                     onClick={(event) => {
                       event.stopPropagation();
@@ -468,9 +471,10 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       seatW={seatBox.w}
                       seatH={seatBox.h}
                       zoom={transform.k}
+                      view={mapView}
                       selected={selectedSet}
                       peeked={peekedSet}
-                      includeUnassigned={geo.sectionId === seatFocus.primary && transform.k >= 2.6}
+                      includeUnassigned={geo.sectionId === seatFocus.primary && transform.k >= 1.85}
                       statusOf={statusOf}
                       onSeatClick={onSeatClick}
                       onSeatHover={handleSeatHover}
@@ -620,6 +624,7 @@ const SectionSeats = memo(function SectionSeats({
   seatW,
   seatH,
   zoom,
+  view,
   selected,
   peeked,
   includeUnassigned,
@@ -635,6 +640,7 @@ const SectionSeats = memo(function SectionSeats({
   seatW: number;
   seatH: number;
   zoom: number;
+  view: { minX: number; maxX: number; minY: number; maxY: number };
   selected: Set<string>;
   peeked: Set<string>;
   includeUnassigned: boolean;
@@ -642,7 +648,16 @@ const SectionSeats = memo(function SectionSeats({
   onSeatClick: (id: string, status: SeatStatus, clientX: number, clientY: number) => void;
   onSeatHover: (seat: SeatHover | null, pointerType?: string) => void;
 }) {
-  const hit = Math.max(seatW, seatH, 18 / zoom);
+  const { t0, t1 } = sectionThetaRange(geo);
+  const rFit = (geo.rInner + geo.rOuter) / 2;
+  const pitch = (rFit * Math.abs(t1 - t0)) / Math.max(align.totalWeight, 1);
+  const bandCount = Math.max(bands?.bands.length ?? rows.length, 1);
+  const rowH = (geo.rOuter - geo.rInner) / bandCount;
+  const w = Math.max(1.15, Math.min(seatW, pitch * 0.84));
+  const h = Math.max(1, Math.min(seatH, rowH * 0.62, w * 0.9));
+  const hit = Math.max(w, h, 16 / zoom);
+  const pad = Math.max(w, h, 12);
+  const showCode = w * zoom > 9.5;
 
   return (
     <g>
@@ -658,12 +673,19 @@ const SectionSeats = memo(function SectionSeats({
             ? radiusForRow(geo, row.id, bands, deltaR, rowIndex)
             : geo.rInner + ((rowIndex + 0.55) / Math.max(rows.length, 1)) * (geo.rOuter - geo.rInner);
           const point = polarAtRadius(geo, radius, item.t);
+          if (
+            point.x < view.minX - pad ||
+            point.x > view.maxX + pad ||
+            point.y < view.minY - pad ||
+            point.y > view.maxY + pad
+          ) {
+            return null;
+          }
           const deg = (point.theta * 180) / Math.PI;
           const isPeeked = peeked.has(id);
           const isSelected = selected.has(id) || isPeeked;
           const code = `${row.id}${number}`;
-          const codeSize = Math.min(seatH * 0.34, (seatW * 0.62) / Math.max(code.length * 0.7, 2));
-          const showCode = seatW * zoom > 8.5;
+          const codeSize = Math.min(h * 0.34, (w * 0.62) / Math.max(code.length * 0.7, 2));
           return (
             <g
               key={`${id}-${rowIndex}-${item.t}`}
@@ -708,11 +730,11 @@ const SectionSeats = memo(function SectionSeats({
                 fill="transparent"
               />
               <rect
-                x={-seatW / 2}
-                y={-seatH / 2}
-                width={seatW}
-                height={seatH}
-                rx={Math.min(1.6, seatW / 5)}
+                x={-w / 2}
+                y={-h / 2}
+                width={w}
+                height={h}
+                rx={Math.min(1.6, w / 5)}
                 fill={STATUS_FILL[status === "foreign" ? "unassigned" : status]}
                 stroke={isPeeked ? "#E8C39A" : isSelected ? "#F8FAFC" : "#0B132B"}
                 strokeWidth={(isSelected ? 1.35 : 0.32) / zoom}
@@ -728,7 +750,7 @@ const SectionSeats = memo(function SectionSeats({
                   paintOrder="stroke"
                   fontSize={codeSize}
                   fontWeight="700"
-                  textLength={seatW * 0.74}
+                  textLength={w * 0.74}
                   lengthAdjust="spacingAndGlyphs"
                   className="pointer-events-none"
                 >

@@ -94,6 +94,7 @@ function redistributeRingThetas(
   }
 
   for (const ringSlots of byRing.values()) {
+    if (ringSlots[0]?.geos[0]?.areaId === "segundo-piso") continue;
     ringSlots.sort((a, b) => (a.start + a.end) / 2 - (b.start + b.end) / 2);
     const clusters: Slot[][] = [];
     let current: Slot[] = [ringSlots[0]];
@@ -180,7 +181,6 @@ export function buildSectionGeometry(tabulador: VenueTabulador): SectionGeometry
 
   redistributeRingThetas(geometries, (sectionId) => weights.get(sectionId) ?? 1);
   stackUpperFloor(geometries);
-  redistributeRingThetas(geometries, (sectionId) => weights.get(sectionId) ?? 1);
   return geometries;
 }
 
