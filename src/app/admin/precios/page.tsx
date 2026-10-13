@@ -39,8 +39,7 @@ export default function PreciosAdminPage() {
   return (
     <div className="space-y-4">
       <section className="card p-5">
-        <p className="text-xs uppercase tracking-wider text-bronze-dark">Módulo 3 · Admin</p>
-        <h2 className="font-display text-3xl phone-landscape:text-xl">Precios por área</h2>
+        <h2 className="font-display text-3xl phone-landscape:text-xl">Precios por sección</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {state.prices.map((item) => (
             <PriceField
@@ -54,9 +53,9 @@ export default function PreciosAdminPage() {
         </div>
       </section>
 
-      <section className="card p-5">
-        <h3 className="font-display text-2xl">Promociones</h3>
-        <p className="text-sm text-ink-muted">
+      <details className="card p-5">
+        <summary className="cursor-pointer font-display text-2xl">Promociones</summary>
+        <p className="mt-2 text-sm text-ink-muted">
           El nombre de la promoción vigente se imprime en cada boleto vendido durante su periodo.
         </p>
         <div className="mt-4 grid gap-3">
@@ -154,7 +153,7 @@ export default function PreciosAdminPage() {
             <li className="text-sm text-ink-muted">Aún no hay promociones activas.</li>
           )}
         </ul>
-      </section>
+      </details>
     </div>
   );
 }

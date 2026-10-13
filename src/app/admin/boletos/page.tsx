@@ -138,12 +138,7 @@ export default function BoletosAdminPage() {
   return (
     <div className="space-y-4 phone-landscape:space-y-2">
       <div>
-        <p className="text-[10px] uppercase tracking-wider text-bronze-dark phone-landscape:hidden">Boletos</p>
         <h2 className="font-display text-3xl phone-landscape:text-xl">Boletos</h2>
-        <p className="mt-2 text-sm text-ink-muted phone-landscape:hidden">
-          Edita titular y contacto, o completa pagos parciales y totales. Un apartado pasa a
-          vendido cuando el saldo llega a cero.
-        </p>
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
           <input
             className="field"

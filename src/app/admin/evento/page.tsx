@@ -78,7 +78,6 @@ export default function EventoAdminPage() {
 
   return (
     <div className="card max-w-2xl p-6">
-      <p className="text-xs uppercase tracking-wider text-bronze-dark">Módulo 1 · Admin</p>
       <h2 className="font-display text-3xl phone-landscape:text-xl">Configuración del evento</h2>
       <div className="mt-5 grid gap-4">
         <label className="text-sm font-medium text-ink-muted">

@@ -18,7 +18,7 @@ function isExcelFile(file: File): boolean {
   );
 }
 
-export function ImportTabulador() {
+export function ImportTabulador({ startCollapsed = false }: { startCollapsed?: boolean }) {
   const { state, importTabulador, tabuladorCount } = useEventStore();
   const { campus } = useCampus();
   const [message, setMessage] = useState("");
@@ -56,10 +56,10 @@ export function ImportTabulador() {
     URL.revokeObjectURL(url);
   }
 
-  return (
-    <div className="card p-5">
-      <h3 className="font-display text-2xl">Importar tabulador real</h3>
-      <p className="mt-1 text-sm text-ink-muted">
+  const body = (
+    <>
+      {startCollapsed ? null : <h3 className="font-display text-2xl">Importar tabulador real</h3>}
+      <p className={`text-sm text-ink-muted ${startCollapsed ? "" : "mt-1"}`}>
         Carga un JSON o un Excel (.xlsx) con Orden, Área, Sección, Fila y Asiento. El orden 1
         queda abajo (hacia el escenario) y sube hasta n. En Asiento puedes marcar pasillos{" "}
         <code>- P1-</code> / <code>- P2-</code>, huecos <code>- C -</code> y columnas vacías{" "}
@@ -113,6 +113,17 @@ export function ImportTabulador() {
           {TABULADOR_XLSX_EXAMPLE}
         </pre>
       </details>
-    </div>
+    </>
   );
+
+  if (startCollapsed) {
+    return (
+      <details className="card p-5">
+        <summary className="cursor-pointer font-display text-xl">Importar tabulador real</summary>
+        <div className="mt-3">{body}</div>
+      </details>
+    );
+  }
+
+  return <div className="card p-5">{body}</div>;
 }

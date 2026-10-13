@@ -15,13 +15,14 @@ export default function AsientosAdminPage() {
   const { state, saveSeatAssignments } = useEventStore();
   const foreign = useMemo(() => new Set(state.foreignSeats ?? []), [state.foreignSeats]);
   const canEdit = useCan("seats:edit");
-  const [sectionId, setSectionId] = useState(state.tabulador.areas[0]?.sections[0]?.id ?? "105");
+  const [openAreaId, setOpenAreaId] = useState<string | null>(null);
+  const [sectionId, setSectionId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, SeatStatus>>(state.seatStatus);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const located = findSection(state.tabulador, sectionId);
+  const located = sectionId ? findSection(state.tabulador, sectionId) : null;
 
   useEffect(() => {
     if (dirty) return;
@@ -63,6 +64,11 @@ export default function AsientosAdminPage() {
     applyStatus([id], status === "available" ? "unassigned" : "available");
   }
 
+  function toggleArea(areaId: string) {
+    setSectionId(null);
+    setOpenAreaId((current) => (current === areaId ? null : areaId));
+  }
+
   async function save() {
     setSaving(true);
     setError("");
@@ -85,102 +91,125 @@ export default function AsientosAdminPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="card p-5">
-        <p className="text-xs uppercase tracking-wider text-bronze-dark">Asientos</p>
-        <h2 className="font-display text-3xl phone-landscape:text-xl">Asignación de áreas y asientos</h2>
-        <p className="mt-2 text-sm text-ink-muted">
-          Verde = a la venta. Gris = no asignado (incluye asientos de otro campus, que no se
-          pueden asignar aquí). Los cambios son un borrador hasta pulsar{" "}
-          <strong>Guardar disponibilidad</strong>; solo entonces aparecen en el módulo de venta.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {state.tabulador.areas.map((area) => (
-            <div key={area.id} className="min-w-40">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                {area.name}
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {area.sections.map((section) => (
-                  <button
-                    key={`${area.id}-${section.id}`}
-                    type="button"
-                    className={`min-h-12 rounded-xl px-3 text-sm font-semibold ${
-                      sectionId === section.id ? "bg-bronze text-white" : "bg-slate-100"
-                    }`}
-                    onClick={() => setSectionId(section.id)}
-                  >
-                    {section.name}
-                  </button>
-                ))}
+    <div className="flex min-h-0 flex-col gap-3">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_14rem] phone-landscape:grid-cols-[minmax(0,1fr)_11.5rem]">
+        <div className="card flex min-h-0 flex-col p-3">
+          {located && sectionId ? (
+            <>
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="font-display text-xl">
+                  {located.area.name} {located.section.id}
+                </p>
+                <SeatLegend />
               </div>
+              <RoleGate allow="seats:edit">
+                <div className="mb-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => applyStatus(sectionSeatIds, "available")}
+                  >
+                    Toda la sección a la venta
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => applyStatus(sectionSeatIds, "unassigned")}
+                  >
+                    Quitar sección de venta
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={!dirty || saving}
+                    onClick={() => void save()}
+                  >
+                    {saving ? "Guardando…" : "Guardar disponibilidad"}
+                  </button>
+                  <button type="button" className="btn-ghost" disabled={!dirty || saving} onClick={discard}>
+                    Descartar
+                  </button>
+                  {sortedRows(located.section.rows).map((row, rowIndex) => (
+                    <button
+                      key={`${row.id}-${rowIndex}`}
+                      type="button"
+                      className="btn-ghost px-3"
+                      onClick={() =>
+                        applyStatus(
+                          row.seats.map((number) => seatId(located.section.id, row.id, number)),
+                          "available",
+                        )
+                      }
+                    >
+                      Fila {row.id}
+                    </button>
+                  ))}
+                </div>
+              </RoleGate>
+              {dirty ? (
+                <p className="mb-2 text-sm text-held">Hay cambios sin guardar. Aún no se ven en venta.</p>
+              ) : null}
+              {message ? <p className="mb-2 text-sm text-available">{message}</p> : null}
+              {error ? <p className="mb-2 text-sm text-sold">{error}</p> : null}
+              <div className="min-h-0 flex-1">
+                <CurvedSeatMap
+                  sectionId={sectionId}
+                  selectedIds={[]}
+                  onSeatClick={toggle}
+                  statusOf={statusOfDraft}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex min-h-[min(68vh,760px)] flex-1 items-center justify-center rounded-2xl bg-navy-deep phone-landscape:min-h-[calc(100dvh-5.5rem)]">
+              <p className="px-6 text-center text-sm text-white/80">
+                Elige un área a la derecha y luego una sección para ver su mapa.
+              </p>
             </div>
-          ))}
+          )}
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <RoleGate allow="seats:edit">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => applyStatus(sectionSeatIds, "available")}
-            >
-              Toda la sección a la venta
-            </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => applyStatus(sectionSeatIds, "unassigned")}
-            >
-              Quitar sección de venta
-            </button>
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={!dirty || saving}
-              onClick={() => void save()}
-            >
-              {saving ? "Guardando…" : "Guardar disponibilidad"}
-            </button>
-            <button type="button" className="btn-ghost" disabled={!dirty || saving} onClick={discard}>
-              Descartar
-            </button>
-          </RoleGate>
-          {located && canEdit
-            ? sortedRows(located.section.rows).map((row, rowIndex) => (
-                <button
-                  key={`${row.id}-${rowIndex}`}
-                  type="button"
-                  className="btn-ghost px-3"
-                  onClick={() =>
-                    applyStatus(
-                      row.seats.map((number) => seatId(located.section.id, row.id, number)),
-                      "available",
-                    )
-                  }
-                >
-                  Fila {row.id}
-                </button>
-              ))
-            : null}
-        </div>
-        {dirty ? (
-          <p className="mt-3 text-sm text-held">Hay cambios sin guardar. Aún no se ven en venta.</p>
-        ) : null}
-        {message ? <p className="mt-3 text-sm text-available">{message}</p> : null}
-        {error ? <p className="mt-3 text-sm text-sold">{error}</p> : null}
+        <aside className="card h-fit max-h-[min(80vh,900px)] overflow-y-auto p-2">
+          <p className="px-2 pb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Secciones
+          </p>
+          <ul className="space-y-1">
+            {state.tabulador.areas.map((area) => {
+              const open = openAreaId === area.id;
+              return (
+                <li key={area.id}>
+                  <button
+                    type="button"
+                    className={`flex min-h-11 w-full items-center justify-between rounded-xl px-3 text-left text-sm font-semibold ${
+                      open ? "bg-bronze text-white" : "bg-slate-100 text-ink"
+                    }`}
+                    onClick={() => toggleArea(area.id)}
+                  >
+                    <span>{area.name}</span>
+                    <span className="text-xs opacity-80">{open ? "−" : "+"}</span>
+                  </button>
+                  {open ? (
+                    <div className="mt-1 grid grid-cols-2 gap-1 px-1 pb-1">
+                      {area.sections.map((section) => (
+                        <button
+                          key={`${area.id}-${section.id}`}
+                          type="button"
+                          className={`min-h-10 rounded-lg px-2 text-sm font-semibold ${
+                            sectionId === section.id ? "bg-navy text-white" : "bg-white text-ink ring-1 ring-slate-200"
+                          }`}
+                          onClick={() => setSectionId(section.id)}
+                        >
+                          {section.name}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </aside>
       </div>
-      <SeatLegend />
-      {located && (
-        <div className="card p-3">
-          <CurvedSeatMap
-            sectionId={sectionId}
-            selectedIds={[]}
-            onSeatClick={toggle}
-            statusOf={statusOfDraft}
-          />
-        </div>
-      )}
-      <ImportTabulador />
+      <ImportTabulador startCollapsed />
     </div>
   );
 }
