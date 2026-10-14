@@ -10,12 +10,19 @@ export const WEEKDAYS = [
 
 export type WeekdayId = (typeof WEEKDAYS)[number]["id"];
 
-export interface EditorSchedule {
-  mode: "once" | "weekly";
+export interface DayWindow {
+  day: WeekdayId;
   start: string;
   end: string;
+}
+
+export interface EditorSchedule {
+  mode: "once" | "weekly";
+  start?: string;
+  end?: string;
   date?: string;
   days?: WeekdayId[];
+  windows?: DayWindow[];
 }
 
 const WEEKDAY_INDEX: Record<string, WeekdayId> = {
@@ -62,7 +69,9 @@ function timeToMinutes(value: string): number {
 }
 
 export function normalizeTime(value: string): string {
-  const match = String(value ?? "").trim().match(/^(\d{1,2}):(\d{2})/);
+  const match = String(value ?? "")
+    .trim()
+    .match(/^(\d{1,2}):(\d{2})/);
   if (!match) return "";
   return `${pad(match[1]!)}:${match[2]}`;
 }
@@ -72,40 +81,88 @@ export function isValidTime(value: string): boolean {
   return /^\d{2}:\d{2}$/.test(normalized) && Number.isFinite(timeToMinutes(normalized));
 }
 
-export function parseSchedule(raw: unknown): EditorSchedule | undefined {
+function parseWindow(raw: unknown): DayWindow | undefined {
   if (!raw || typeof raw !== "object") return undefined;
-  const value = raw as Partial<EditorSchedule>;
-  if (value.mode !== "once" && value.mode !== "weekly") return undefined;
+  const value = raw as Partial<DayWindow>;
+  const day = Number(value.day);
   const start = normalizeTime(value.start ?? "");
   const end = normalizeTime(value.end ?? "");
+  if (!Number.isInteger(day) || day < 0 || day > 6) return undefined;
   if (!isValidTime(start) || !isValidTime(end)) return undefined;
   if (timeToMinutes(end) <= timeToMinutes(start)) return undefined;
+  return { day: day as WeekdayId, start, end };
+}
+
+function uniqueWindows(windows: DayWindow[]): DayWindow[] {
+  const map = new Map<WeekdayId, DayWindow>();
+  for (const window of windows) map.set(window.day, window);
+  return [...map.values()].sort((a, b) => a.day - b.day);
+}
+
+export function parseSchedule(raw: unknown): EditorSchedule | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = raw as Partial<EditorSchedule> & { windows?: unknown };
+  if (value.mode !== "once" && value.mode !== "weekly") return undefined;
+
   if (value.mode === "once") {
+    const start = normalizeTime(value.start ?? "");
+    const end = normalizeTime(value.end ?? "");
+    if (!isValidTime(start) || !isValidTime(end)) return undefined;
+    if (timeToMinutes(end) <= timeToMinutes(start)) return undefined;
     if (!value.date || !/^\d{4}-\d{2}-\d{2}$/.test(value.date)) return undefined;
     return { mode: "once", date: value.date, start, end };
   }
+
+  const fromWindows = Array.isArray(value.windows)
+    ? uniqueWindows(value.windows.flatMap((item) => parseWindow(item) ?? []))
+    : [];
+  if (fromWindows.length) {
+    return {
+      mode: "weekly",
+      windows: fromWindows,
+      days: fromWindows.map((item) => item.day),
+    };
+  }
+
+  const start = normalizeTime(value.start ?? "");
+  const end = normalizeTime(value.end ?? "");
   const days = [
     ...new Set(
       (value.days ?? [])
         .map((day) => Number(day))
         .filter((day): day is WeekdayId => Number.isInteger(day) && day >= 0 && day <= 6),
     ),
-  ].sort(
-    (a, b) => a - b,
-  );
-  if (!days.length) return undefined;
-  return { mode: "weekly", days, start, end };
+  ].sort((a, b) => a - b);
+  if (!days.length || !isValidTime(start) || !isValidTime(end)) return undefined;
+  if (timeToMinutes(end) <= timeToMinutes(start)) return undefined;
+  return {
+    mode: "weekly",
+    start,
+    end,
+    days,
+    windows: days.map((day) => ({ day, start, end })),
+  };
+}
+
+export function windowsFor(schedule: EditorSchedule | undefined): DayWindow[] {
+  if (!schedule || schedule.mode !== "weekly") return [];
+  if (schedule.windows?.length) return uniqueWindows(schedule.windows);
+  const start = schedule.start;
+  const end = schedule.end;
+  if (!start || !end) return [];
+  return (schedule.days ?? []).map((day) => ({ day, start, end }));
 }
 
 export function todayWindow(schedule: EditorSchedule | undefined, at = new Date()) {
   if (!schedule) return null;
   const now = mexicoParts(at);
   if (schedule.mode === "once") {
-    if (schedule.date !== now.date) return null;
+    if (schedule.date !== now.date || !schedule.start || !schedule.end) return null;
     return { start: schedule.start, end: schedule.end, date: now.date };
   }
-  if (!schedule.days?.includes(now.weekday)) return null;
-  return { start: schedule.start, end: schedule.end, date: now.date };
+  const window = windowsFor(schedule).find((item) => item.day === now.weekday);
+  if (!window) return null;
+  return { start: window.start, end: window.end, date: now.date };
 }
 
 function mexicoDateTimeToMs(date: string, time: string): number {
@@ -135,10 +192,23 @@ export function accessUntilMs(schedule: EditorSchedule | undefined, at = new Dat
   return mexicoDateTimeToMs(window.date, window.end);
 }
 
+function weekdayLabel(id: WeekdayId) {
+  return WEEKDAYS.find((item) => item.id === id)?.label ?? String(id);
+}
+
 export function scheduleLabel(schedule: EditorSchedule | undefined): string {
   if (!schedule) return "Sin horario";
-  const range = `${schedule.start} – ${schedule.end}`;
-  if (schedule.mode === "once") return `Hoy ${schedule.date}: ${range}`;
-  const days = (schedule.days ?? []).map((id) => WEEKDAYS.find((item) => item.id === id)?.label ?? id).join(", ");
-  return `${days}: ${range}`;
+  if (schedule.mode === "once") {
+    return `Hoy ${schedule.date}: ${schedule.start} – ${schedule.end}`;
+  }
+  const windows = windowsFor(schedule);
+  if (!windows.length) return "Sin horario";
+  const groups = new Map<string, WeekdayId[]>();
+  for (const window of windows) {
+    const key = `${window.start} – ${window.end}`;
+    groups.set(key, [...(groups.get(key) ?? []), window.day]);
+  }
+  return [...groups.entries()]
+    .map(([range, days]) => `${days.map(weekdayLabel).join(", ")}: ${range}`)
+    .join(" · ");
 }

@@ -8,6 +8,8 @@ import {
   mexicoParts,
   parseSchedule,
   scheduleLabel,
+  windowsFor,
+  type DayWindow,
   type EditorSchedule,
   type WeekdayId,
 } from "@/lib/auth/schedule";
@@ -356,15 +358,30 @@ function EditorScheduleModal({
 }) {
   const today = mexicoParts().date;
   const initial = user.schedule;
+  const initialWindows = windowsFor(initial);
   const [mode, setMode] = useState<"once" | "weekly">(initial?.mode ?? "once");
-  const [start, setStart] = useState(initial?.start ?? "09:30");
-  const [end, setEnd] = useState(initial?.end ?? "09:50");
-  const [days, setDays] = useState<WeekdayId[]>(initial?.days ?? []);
+  const [start, setStart] = useState(initial?.start ?? initialWindows[0]?.start ?? "09:30");
+  const [end, setEnd] = useState(initial?.end ?? initialWindows[0]?.end ?? "09:50");
+  const [windows, setWindows] = useState<DayWindow[]>(initialWindows);
+  const [formError, setFormError] = useState("");
 
   function toggleDay(id: WeekdayId) {
-    setDays((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id].sort((a, b) => a - b),
+    setWindows((current) => {
+      if (current.some((item) => item.day === id)) {
+        return current.filter((item) => item.day !== id);
+      }
+      return [...current, { day: id, start, end }].sort((a, b) => a.day - b.day);
+    });
+  }
+
+  function updateWindow(id: WeekdayId, field: "start" | "end", value: string) {
+    setWindows((current) =>
+      current.map((item) => (item.day === id ? { ...item, [field]: value } : item)),
     );
+  }
+
+  function applyToSelected() {
+    setWindows((current) => current.map((item) => ({ ...item, start, end })));
   }
 
   return (
@@ -374,12 +391,20 @@ function EditorScheduleModal({
         onClick={(event) => event.stopPropagation()}
         onSubmit={(event) => {
           event.preventDefault();
+          setFormError("");
           const payload =
             mode === "once"
               ? { mode: "once" as const, date: today, start, end }
-              : { mode: "weekly" as const, days, start, end };
+              : { mode: "weekly" as const, windows };
           const parsed = parseSchedule(payload);
-          if (!parsed) return;
+          if (!parsed) {
+            setFormError(
+              mode === "weekly"
+                ? "Marca al menos un día y revisa que cada horario tenga hora de fin posterior al inicio."
+                : "Revisa que la hora de fin sea posterior al inicio.",
+            );
+            return;
+          }
           void onSave(parsed);
         }}
       >
@@ -407,34 +432,78 @@ function EditorScheduleModal({
             </select>
           </label>
           {mode === "weekly" ? (
-            <fieldset>
-              <legend className="text-sm font-medium text-ink-muted">Días permitidos</legend>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {WEEKDAYS.map((day) => (
-                  <label key={day.id} className="flex items-center gap-1.5 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={days.includes(day.id)}
-                      onChange={() => toggleDay(day.id)}
-                    />
-                    {day.label}
-                  </label>
-                ))}
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-medium text-ink-muted">
+                  Horario a copiar
+                  <input className="field mt-1" type="time" value={start} onChange={(event) => setStart(event.target.value)} />
+                </label>
+                <label className="text-sm font-medium text-ink-muted">
+                  Hasta
+                  <input className="field mt-1" type="time" value={end} onChange={(event) => setEnd(event.target.value)} />
+                </label>
               </div>
-            </fieldset>
+              <button type="button" className="btn-ghost w-fit" onClick={applyToSelected}>
+                Usar el mismo horario en los días marcados
+              </button>
+              <fieldset>
+                <legend className="text-sm font-medium text-ink-muted">Días permitidos</legend>
+                <div className="mt-2 grid gap-2">
+                  {WEEKDAYS.map((day) => {
+                    const window = windows.find((item) => item.day === day.id);
+                    return (
+                      <div key={day.id} className="grid grid-cols-[auto_1fr_1fr] items-center gap-2">
+                        <label className="flex min-w-28 items-center gap-1.5 text-sm">
+                          <input type="checkbox" checked={Boolean(window)} onChange={() => toggleDay(day.id)} />
+                          {day.label}
+                        </label>
+                        <input
+                          className="field"
+                          type="time"
+                          disabled={!window}
+                          value={window?.start ?? ""}
+                          onChange={(event) => updateWindow(day.id, "start", event.target.value)}
+                        />
+                        <input
+                          className="field"
+                          type="time"
+                          disabled={!window}
+                          value={window?.end ?? ""}
+                          onChange={(event) => updateWindow(day.id, "end", event.target.value)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            </>
           ) : (
-            <p className="text-sm text-ink-muted">Válido únicamente el {today}.</p>
+            <>
+              <p className="text-sm text-ink-muted">Válido únicamente el {today}.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-medium text-ink-muted">
+                  Desde
+                  <input
+                    className="field mt-1"
+                    type="time"
+                    required
+                    value={start}
+                    onChange={(event) => setStart(event.target.value)}
+                  />
+                </label>
+                <label className="text-sm font-medium text-ink-muted">
+                  Hasta
+                  <input
+                    className="field mt-1"
+                    type="time"
+                    required
+                    value={end}
+                    onChange={(event) => setEnd(event.target.value)}
+                  />
+                </label>
+              </div>
+            </>
           )}
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-sm font-medium text-ink-muted">
-              Desde
-              <input className="field mt-1" type="time" required value={start} onChange={(event) => setStart(event.target.value)} />
-            </label>
-            <label className="text-sm font-medium text-ink-muted">
-              Hasta
-              <input className="field mt-1" type="time" required value={end} onChange={(event) => setEnd(event.target.value)} />
-            </label>
-          </div>
           <div className="flex flex-wrap gap-2">
             <button type="submit" className="btn-primary" disabled={busy}>
               {busy ? "Guardando…" : "Guardar horario"}
@@ -445,7 +514,7 @@ function EditorScheduleModal({
               </button>
             ) : null}
           </div>
-          {error ? <p className="text-sm text-sold">{error}</p> : null}
+          {formError || error ? <p className="text-sm text-sold">{formError || error}</p> : null}
         </div>
       </form>
     </div>

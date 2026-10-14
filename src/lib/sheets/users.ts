@@ -34,24 +34,46 @@ const HEADERS = [
 
 function serializeSchedule(schedule?: EditorSchedule) {
   if (!schedule) return ["", "", "", "", ""];
-  return [
-    schedule.mode,
-    (schedule.days ?? []).join("|"),
-    schedule.start,
-    schedule.end,
-    schedule.date ?? "",
-  ];
+  if (schedule.mode === "once") {
+    return [schedule.mode, "", schedule.start ?? "", schedule.end ?? "", schedule.date ?? ""];
+  }
+  const encoded = (schedule.windows?.length
+    ? schedule.windows
+    : (schedule.days ?? []).map((day) => ({
+        day,
+        start: schedule.start ?? "",
+        end: schedule.end ?? "",
+      }))
+  )
+    .map((window) => `${window.day}@${window.start}-${window.end}`)
+    .join("|");
+  return [schedule.mode, encoded, "", "", ""];
+}
+
+function parseEncodedWindows(raw: string): { day: number; start?: string; end?: string }[] {
+  return raw
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .flatMap((item) => {
+      const match = item.match(/^(\d)(?:@(\d{1,2}:\d{2})-(\d{1,2}:\d{2}))?$/);
+      if (!match) return [];
+      const day = Number(match[1]);
+      if (!match[2] || !match[3]) return [{ day }];
+      return [{ day, start: match[2], end: match[3] }];
+    });
 }
 
 function parseRowSchedule(row: string[]): EditorSchedule | undefined {
+  const encoded = parseEncodedWindows(String(row[7] ?? ""));
+  const windows = encoded.flatMap((item) =>
+    item.start && item.end ? [{ day: item.day, start: item.start, end: item.end }] : [],
+  );
+  const days = encoded.map((item) => item.day);
   return parseSchedule({
     mode: row[6],
-    days: String(row[7] ?? "")
-      .split("|")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => Number(item))
-      .filter((item) => Number.isInteger(item)),
+    windows: windows.length ? windows : undefined,
+    days,
     start: row[8],
     end: row[9],
     date: row[10],
