@@ -95,9 +95,9 @@ export default function DashboardPage() {
       byMonth.set(key, list);
     }
 
-    const methods = new Map<string, { card: number; cash: number; pending: number }>();
+    const methods = new Map<string, { card: number; cash: number; other: number; pending: number }>();
     const seatsWeek = new Map<string, { sold: number; held: number }>();
-    const methodsByDay = new Map<string, { card: number; cash: number; pending: number }>();
+    const methodsByDay = new Map<string, { card: number; cash: number; other: number; pending: number }>();
     const seatsByDay = new Map<string, { sold: number; held: number }>();
     for (const purchase of livePurchases) {
       if (isNamelessBlock(purchase)) {
@@ -116,20 +116,20 @@ export default function DashboardPage() {
       for (const payment of activePayments(purchase)) {
         const day = payment.date.slice(0, 10);
         const key = weekStart(payment.date);
-        const methodRow = methods.get(key) ?? { card: 0, cash: 0, pending: 0 };
+        const methodRow = methods.get(key) ?? { card: 0, cash: 0, other: 0, pending: 0 };
         methodRow[purchase.paymentMethod] += payment.amount;
         methods.set(key, methodRow);
-        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, pending: 0 };
+        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, other: 0, pending: 0 };
         methodDay[purchase.paymentMethod] += payment.amount;
         methodsByDay.set(day, methodDay);
       }
       for (const item of purchase.installments.filter((entry) => !entry.paid)) {
         const day = item.date.slice(0, 10);
         const week = weekStart(item.date);
-        const methodRow = methods.get(week) ?? { card: 0, cash: 0, pending: 0 };
+        const methodRow = methods.get(week) ?? { card: 0, cash: 0, other: 0, pending: 0 };
         methodRow.pending += item.amount;
         methods.set(week, methodRow);
-        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, pending: 0 };
+        const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, other: 0, pending: 0 };
         methodDay.pending += item.amount;
         methodsByDay.set(day, methodDay);
       }
@@ -155,6 +155,7 @@ export default function DashboardPage() {
       values: {
         card: methods.get(key)?.card ?? 0,
         cash: methods.get(key)?.cash ?? 0,
+        other: methods.get(key)?.other ?? 0,
         pending: methods.get(key)?.pending ?? 0,
       },
     }));
@@ -191,6 +192,7 @@ export default function DashboardPage() {
   const methodSeries: BarSeries[] = [
     { key: "card", label: "Tarjeta", color: "#1C2541" },
     { key: "cash", label: "Efectivo", color: "#9A6B43" },
+    { key: "other", label: "Otro", color: "#64748B" },
     { key: "pending", label: "Pendiente", color: "#DC2626" },
   ];
   const seatSeries: BarSeries[] = [
@@ -378,6 +380,7 @@ export default function DashboardPage() {
                         ? {
                             card: metrics.methodsByDay.get(day)?.card ?? 0,
                             cash: metrics.methodsByDay.get(day)?.cash ?? 0,
+                            other: metrics.methodsByDay.get(day)?.other ?? 0,
                             pending: metrics.methodsByDay.get(day)?.pending ?? 0,
                           }
                         : {

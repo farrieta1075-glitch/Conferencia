@@ -8,7 +8,7 @@ export type AreaId =
 export type SeatStatus = "unassigned" | "available" | "held" | "sold" | "foreign";
 export type DiscountType = "fixed" | "percent";
 export type PaymentMode = "total" | "partial";
-export type PaymentMethod = "card" | "cash";
+export type PaymentMethod = "card" | "cash" | "other";
 export type InstallmentCount = 3 | 4 | 5 | 6;
 
 export interface RowSpec {

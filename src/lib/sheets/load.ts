@@ -183,7 +183,8 @@ function buildPurchases(
     ] = row;
     if (!id) continue;
     const paymentMode: PaymentMode = paymentModeRaw === "partial" ? "partial" : "total";
-    const paymentMethod: PaymentMethod = paymentMethodRaw === "cash" ? "cash" : "card";
+    const paymentMethod: PaymentMethod =
+      paymentMethodRaw === "cash" ? "cash" : paymentMethodRaw === "other" ? "other" : "card";
     const total = Number(totalRaw) || 0;
     const paid = Number(paidRaw) || 0;
     const logged: PaymentRecord[] = paymentRows
@@ -192,7 +193,7 @@ function buildPurchases(
         id: item[1] || `pay-${id}-${item[2]}`,
         date: item[2],
         amount: Number(item[3]) || 0,
-        method: item[4] === "cash" ? "cash" : "card",
+        method: item[4] === "cash" ? "cash" : item[4] === "other" ? "other" : "card",
         cancelled: String(item[5] ?? "").toLowerCase() === "si",
         cancelReason: item[6] || undefined,
         cancelledAt: item[7] || undefined,

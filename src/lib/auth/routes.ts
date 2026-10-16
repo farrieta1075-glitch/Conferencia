@@ -23,6 +23,7 @@ export function permissionForRequest(
   if (pathname.startsWith("/api/prices") || pathname.startsWith("/api/promotions")) {
     return "prices:edit";
   }
+  if (pathname.startsWith("/api/import/campus-sales")) return "users:manage";
   if (pathname.startsWith("/api/import")) return "tabulador:import";
   if (pathname.match(/\/api\/purchases\/[^/]+\/pay/)) return "payments:complete";
   if (pathname.startsWith("/api/purchases") && verb === "GET") return "tickets:read";

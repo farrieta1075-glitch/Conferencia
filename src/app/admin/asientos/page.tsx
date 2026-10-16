@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CurvedSeatMap, type CurvedSeatMapHandle } from "@/components/CurvedSeatMap";
+import { ImportCampusSales } from "@/components/ImportCampusSales";
 import { ImportTabulador } from "@/components/ImportTabulador";
 import { RoleGate, useCan } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
@@ -238,6 +239,7 @@ export default function AsientosAdminPage() {
           </ul>
         </aside>
       </div>
+      <ImportCampusSales />
       <ImportTabulador startCollapsed />
     </div>
   );

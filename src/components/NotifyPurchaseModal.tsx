@@ -197,7 +197,7 @@ export function NotifyPurchaseModal({
                   activePayments(purchase).map((item) => (
                     <li key={item.id} className="border-t border-slate-100 py-1">
                       {formatDate(item.date)} · {money(item.amount)} ·{" "}
-                      {item.method === "cash" ? "Efectivo" : "Tarjeta"}
+                      {item.method === "cash" ? "Efectivo" : item.method === "other" ? "Otro" : "Tarjeta"}
                     </li>
                   ))
                 ) : (

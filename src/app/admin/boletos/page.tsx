@@ -219,7 +219,12 @@ export default function BoletosAdminPage() {
               <div>
                 <h3 className="font-display text-2xl">Detalle de compra</h3>
                 <p className="text-sm text-ink-muted">
-                  {formatDate(selected.createdAt)} · {selected.paymentMethod === "card" ? "Tarjeta" : "Efectivo"}
+                  {formatDate(selected.createdAt)} ·{" "}
+                  {selected.paymentMethod === "card"
+                    ? "Tarjeta"
+                    : selected.paymentMethod === "cash"
+                      ? "Efectivo"
+                      : "Otro"}
                 </p>
               </div>
               <button type="button" className="btn-ghost" onClick={() => setSelectedId(null)}>
