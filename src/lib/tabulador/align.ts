@@ -116,6 +116,13 @@ function mapRowToGlobalBlocks(
   return result;
 }
 
+function seatCount(blocks: SeatSlot[][]): number {
+  return blocks.reduce(
+    (sum, block) => sum + block.filter((slot) => slot.kind === "seat").length,
+    0,
+  );
+}
+
 function blockMaxCounts(
   split: { blocks: SeatSlot[][]; aisles: ("P1" | "P2")[] }[],
   aisleOrder: ("P1" | "P2")[],
@@ -129,9 +136,16 @@ function blockMaxCounts(
   const mapped = source.map((row) =>
     mapRowToGlobalBlocks(row.blocks, row.aisles, aisleOrder, equalWeights),
   );
-  return Array.from({ length: blockCount }, (_, index) =>
+  const counts = Array.from({ length: blockCount }, (_, index) =>
     Math.max(1, ...mapped.map((blocks) => blocks[index]?.length ?? 0)),
   );
+  const longest = Math.max(0, ...split.map((row) => seatCount(row.blocks)));
+  let extra = longest - counts.reduce((sum, count) => sum + count, 0);
+  for (let i = 0; extra > 0 && blockCount > 0; i += 1) {
+    counts[i % blockCount] += 1;
+    extra -= 1;
+  }
+  return counts;
 }
 
 function positionInBands(bands: { start: number; end: number }[], offset: number): number {
@@ -170,6 +184,15 @@ function packSlotsAcrossBands(
       deficit -= cut;
     }
     leftover = usable - weights.reduce((sum, weight) => sum + weight, 0);
+  }
+
+  const packed = weights.reduce((sum, weight) => sum + weight, 0);
+  if (packed > usable + 0.001 && packed > 0) {
+    const scale = usable / packed;
+    for (let index = 0; index < weights.length; index += 1) weights[index] *= scale;
+    leftover = 0;
+  } else {
+    leftover = usable - packed;
   }
 
   const gaps = slots.map(() => 0);
@@ -260,6 +283,14 @@ export function buildSectionAlignLayout(rows: RowSpec[]): SectionAlignLayout {
 
   const alignedRows = split.map((row) => {
     const placements: AlignedSlot[] = [];
+    if (!row.aisles.length) {
+      return packSlotsAcrossBands(
+        row.blocks.flat(),
+        [{ start: 0, end: totalWeight }],
+        totalWeight,
+        "center",
+      );
+    }
     const segments = rowSegmentRanges(row.blocks, row.aisles, aisleOrder);
     for (const segment of segments) {
       const bands = blockBands.slice(segment.from, segment.to + 1);
