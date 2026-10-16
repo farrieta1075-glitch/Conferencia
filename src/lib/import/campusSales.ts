@@ -168,9 +168,25 @@ function parseSheetRows(sheetName: string, matrix: unknown[][]): SourceRow[] {
   return rows;
 }
 
-function purchaseId(campus: DataCampus, client: string, soldAt: string): string {
+function isGenericClient(name: string): boolean {
+  const key = norm(name);
+  return (
+    key === "asistente" ||
+    key === "asistentes" ||
+    key === "voluntario" ||
+    key === "voluntaria" ||
+    key === "voluntarios" ||
+    key === "voluntarias" ||
+    key === "coluntario" ||
+    key === "coluntaria" ||
+    key === "coluntarios" ||
+    key === "coluntarias"
+  );
+}
+
+function purchaseId(campus: DataCampus, client: string, soldAt: string, seat?: string): string {
   const digest = createHash("sha1")
-    .update(`${campus}|${norm(client)}|${dateKey(soldAt)}`)
+    .update(`${campus}|${norm(client)}|${dateKey(soldAt)}|${seat ?? ""}`)
     .digest("hex")
     .slice(0, 12);
   return `imp-${campus.toLowerCase()}-${digest}`;
@@ -180,7 +196,9 @@ function buildPurchases(campus: DataCampus, rows: SourceRow[]): Purchase[] {
   const groups = new Map<string, SourceRow[]>();
   for (const row of rows) {
     if (!row.sold) continue;
-    const key = `${norm(row.client)}|${dateKey(row.soldAt)}`;
+    const key = isGenericClient(row.client)
+      ? `${norm(row.client)}|${dateKey(row.soldAt)}|${row.seat}`
+      : `${norm(row.client)}|${dateKey(row.soldAt)}`;
     const list = groups.get(key) ?? [];
     list.push(row);
     groups.set(key, list);
@@ -192,8 +210,14 @@ function buildPurchases(campus: DataCampus, rows: SourceRow[]): Purchase[] {
     const unpaid = group.every((row) => row.unpaid);
     const methods = new Set(group.map((row) => row.method));
     const paymentMethod = methods.size === 1 ? first.method : "other";
+    const id = purchaseId(
+      campus,
+      first.client,
+      first.soldAt,
+      isGenericClient(first.client) ? first.seat : undefined,
+    );
     const tickets: Ticket[] = group.map((row, index) => ({
-      id: `tkt-${purchaseId(campus, first.client, first.soldAt)}-${index}`,
+      id: `tkt-${id}-${index}`,
       seatId: row.seat,
       holderName: row.client,
       price: row.price,
@@ -202,7 +226,6 @@ function buildPurchases(campus: DataCampus, rows: SourceRow[]): Purchase[] {
     const total = tickets.reduce((sum, ticket) => sum + ticket.price, 0);
     const paid = unpaid ? 0 : total;
     const createdAt = first.soldAt || new Date().toISOString();
-    const id = purchaseId(campus, first.client, first.soldAt);
     purchases.push({
       id,
       createdAt,

@@ -55,8 +55,9 @@ export function ImportCampusSales() {
         <summary className="cursor-pointer font-semibold">Actualizar ventas de otros campus</summary>
         <p className="mt-2 text-sm text-ink-muted">
           Sube el Excel (una pestaña por campus, por ejemplo TLC y CDMX). Si Vendido está vacío el
-          asiento queda disponible. Mismo cliente y misma fecha de vendido = una compra. No pagado
-          = apartado. Forma de pago vacía = otro. Esta carga reemplaza ventas y disponibilidad de
+          asiento queda disponible. Mismo cliente y misma fecha de vendido = una compra, excepto
+          Asistente, Voluntario/a o Coluntario, que se cargan boleto por boleto. No pagado =
+          apartado. Forma de pago vacía = otro. Esta carga reemplaza ventas y disponibilidad de
           esos campus con el archivo más reciente. QRO no se modifica.
         </p>
         <label className="mt-3 inline-flex min-h-10 items-center rounded-lg bg-bronze px-3 text-sm font-semibold text-white">
