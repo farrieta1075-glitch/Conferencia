@@ -170,18 +170,7 @@ function parseSheetRows(sheetName: string, matrix: unknown[][]): SourceRow[] {
 
 function isGenericClient(name: string): boolean {
   const key = norm(name);
-  return (
-    key === "asistente" ||
-    key === "asistentes" ||
-    key === "voluntario" ||
-    key === "voluntaria" ||
-    key === "voluntarios" ||
-    key === "voluntarias" ||
-    key === "coluntario" ||
-    key === "coluntaria" ||
-    key === "coluntarios" ||
-    key === "coluntarias"
-  );
+  return /^(asistentes?|voluntari[oa]s?|coluntari[oa]s?)$/.test(key);
 }
 
 function purchaseId(campus: DataCampus, client: string, soldAt: string, seat?: string): string {

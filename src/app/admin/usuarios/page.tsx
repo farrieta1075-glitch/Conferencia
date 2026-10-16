@@ -37,6 +37,7 @@ export default function UsuariosAdminPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [openCreate, setOpenCreate] = useState(false);
+  const [editUser, setEditUser] = useState<PublicUser | null>(null);
   const [filterName, setFilterName] = useState("");
   const [filterCampus, setFilterCampus] = useState<Campus | "">("");
   const [filterRole, setFilterRole] = useState<Role | "">("");
@@ -83,6 +84,41 @@ export default function UsuariosAdminPage() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo crear el usuario");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openEdit(user: PublicUser) {
+    setError("");
+    setEditUser(user);
+    setName(user.name);
+    setEmail(user.email);
+    setPassword("");
+    setRole(user.role);
+    setCampus(user.campus);
+  }
+
+  async function onUpdate(event: FormEvent) {
+    event.preventDefault();
+    if (!editUser) return;
+    setBusy(true);
+    setError("");
+    try {
+      await apiFetch(`/api/users/${encodeURIComponent(editUser.email)}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name,
+          role,
+          campus,
+          ...(password.trim() ? { password: password.trim() } : {}),
+        }),
+      });
+      resetForm();
+      setEditUser(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo guardar el usuario");
     } finally {
       setBusy(false);
     }
@@ -163,7 +199,7 @@ export default function UsuariosAdminPage() {
         </div>
       </section>
       <section className="card overflow-x-auto p-5">
-        {error && !openCreate ? <p className="mb-3 text-sm text-sold">{error}</p> : null}
+        {error && !openCreate && !editUser ? <p className="mb-3 text-sm text-sold">{error}</p> : null}
         <table className="w-full min-w-[480px] text-left text-sm">
           <thead>
             <tr className="text-ink-muted">
@@ -201,18 +237,23 @@ export default function UsuariosAdminPage() {
                   )}
                 </td>
                 <td>
-                  {user.source === "file" ? (
-                    <button
-                      type="button"
-                      className="btn-ghost px-3"
-                      disabled={busy}
-                      onClick={() => void onDelete(user)}
-                    >
-                      Eliminar
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button type="button" className="btn-ghost px-3" disabled={busy} onClick={() => openEdit(user)}>
+                      Editar
                     </button>
-                  ) : (
-                    <span className="text-xs text-ink-muted">Definido en .env.local</span>
-                  )}
+                    {user.source === "file" ? (
+                      <button
+                        type="button"
+                        className="btn-ghost px-3"
+                        disabled={busy}
+                        onClick={() => void onDelete(user)}
+                      >
+                        Eliminar
+                      </button>
+                    ) : (
+                      <span className="text-xs text-ink-muted">Inicial</span>
+                    )}
+                  </div>
                 </td>
               </tr>
             ))}
@@ -300,6 +341,86 @@ export default function UsuariosAdminPage() {
                   </label>
                   <button type="submit" className="btn-primary w-fit" disabled={busy}>
                     {busy ? "Creando…" : "Crear usuario"}
+                  </button>
+                  {error ? <p className="text-sm text-sold">{error}</p> : null}
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {editUser
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[90] flex items-end justify-center bg-navy/70 p-3 sm:items-center"
+              onClick={() => {
+                setEditUser(null);
+                resetForm();
+                setError("");
+              }}
+            >
+              <form
+                className="card max-h-[92dvh] w-full max-w-lg overflow-y-auto p-5"
+                onClick={(event) => event.stopPropagation()}
+                onSubmit={(event) => void onUpdate(event)}
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="font-display text-2xl">Editar usuario</h3>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => {
+                      setEditUser(null);
+                      resetForm();
+                      setError("");
+                    }}
+                  >
+                    Cerrar
+                  </button>
+                </div>
+                <div className="grid gap-3">
+                  <label className="text-sm font-medium text-ink-muted">
+                    Nombre
+                    <input className="field mt-1" value={name} onChange={(e) => setName(e.target.value)} />
+                  </label>
+                  <label className="text-sm font-medium text-ink-muted">
+                    Correo
+                    <input className="field mt-1" type="email" value={email} readOnly />
+                  </label>
+                  <label className="text-sm font-medium text-ink-muted">
+                    Nueva contraseña
+                    <input
+                      className="field mt-1"
+                      type="password"
+                      minLength={8}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Déjala vacía para no cambiarla"
+                    />
+                  </label>
+                  <label className="text-sm font-medium text-ink-muted">
+                    Rol
+                    <select className="field mt-1" value={role} onChange={(e) => setRole(e.target.value as Role)}>
+                      {ROLES.map((item) => (
+                        <option key={item} value={item}>
+                          {roleLabel(item)} ({item})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm font-medium text-ink-muted">
+                    Campus
+                    <select className="field mt-1" value={campus} onChange={(e) => setCampus(e.target.value as Campus)}>
+                      {campusOptions.map((item) => (
+                        <option key={item} value={item}>
+                          {campusLabel(item)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="submit" className="btn-primary w-fit" disabled={busy}>
+                    {busy ? "Guardando…" : "Guardar cambios"}
                   </button>
                   {error ? <p className="text-sm text-sold">{error}</p> : null}
                 </div>

@@ -136,12 +136,16 @@ async function saveStoredUsers(stored: AuthUser[]): Promise<void> {
 }
 
 function mergeUser(base: AuthUser | undefined, next: AuthUser): AuthUser {
+  if (!base) return next;
   return {
-    ...base,
     ...next,
-    schedule: next.schedule ?? base?.schedule,
-    passwordHash: next.passwordHash || base?.passwordHash,
-    password: next.password || base?.password,
+    name: base.name || next.name,
+    role: base.role,
+    campus: base.campus,
+    schedule: base.schedule ?? next.schedule,
+    passwordHash: base.passwordHash,
+    password: base.passwordHash ? undefined : base.password || next.password,
+    source: base.source,
   };
 }
 
@@ -202,28 +206,62 @@ export async function createUser(input: {
   return next;
 }
 
-export async function updateUserSchedule(email: string, schedule: EditorSchedule | undefined): Promise<AuthUser> {
+export async function updateUser(
+  email: string,
+  patch: {
+    name?: string;
+    role?: Role;
+    campus?: Campus;
+    password?: string;
+    schedule?: EditorSchedule | null;
+  },
+): Promise<AuthUser> {
   const needle = email.trim().toLowerCase();
   const current = await findUserByEmail(needle);
   if (!current) throw new Error("Usuario no encontrado");
-  if (current.role !== "EDITOR") {
-    throw new Error("El horario solo aplica a usuarios editores");
+
+  const nextRole = patch.role ?? current.role;
+  if (current.role === "ADMIN" && nextRole !== "ADMIN") {
+    const admins = (await listUsers()).filter((user) => user.role === "ADMIN");
+    if (admins.length <= 1) {
+      throw new Error("Debe quedar al menos un administrador");
+    }
   }
+  if (patch.password !== undefined && patch.password.length > 0 && patch.password.length < 8) {
+    throw new Error("La contraseña debe tener al menos 8 caracteres");
+  }
+
   const stored = await loadStoredUsers();
   const nextUser: AuthUser = {
     ...current,
     email: needle,
+    name: patch.name?.trim() || current.name,
+    role: nextRole,
+    campus: campusForEmail(needle, patch.campus ?? current.campus),
     password: undefined,
-    schedule,
-    source: current.source,
+    passwordHash:
+      patch.password && patch.password.length >= 8 ? hashPassword(patch.password) : current.passwordHash,
+    schedule: nextRole === "EDITOR" ? (patch.schedule === undefined ? current.schedule : patch.schedule ?? undefined) : undefined,
+    source: patch.password ? "file" : current.source,
   };
   const index = stored.findIndex((user) => user.email === needle);
-  if (index >= 0) stored[index] = { ...stored[index], ...nextUser, passwordHash: stored[index].passwordHash || current.passwordHash };
-  else stored.push({ ...nextUser, passwordHash: current.passwordHash });
+  if (index >= 0) {
+    stored[index] = {
+      ...stored[index],
+      ...nextUser,
+      passwordHash: nextUser.passwordHash || stored[index].passwordHash,
+    };
+  } else {
+    stored.push(nextUser);
+  }
   await saveStoredUsers(stored);
   const saved = await findUserByEmail(needle);
-  if (!saved) throw new Error("No se pudo guardar el horario");
+  if (!saved) throw new Error("No se pudo guardar el usuario");
   return saved;
+}
+
+export async function updateUserSchedule(email: string, schedule: EditorSchedule | undefined): Promise<AuthUser> {
+  return updateUser(email, { schedule: schedule ?? null });
 }
 
 export async function deleteUser(email: string): Promise<void> {
