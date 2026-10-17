@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { useSession } from "next-auth/react";
 import { ROLES, roleLabel, type Role } from "@/lib/auth/roles";
 import {
   WEEKDAYS,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/auth/schedule";
 import { CAMPUSES, campusLabel, type Campus } from "@/lib/campus";
 import { apiFetch } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/format";
 import { useCampus } from "@/context/CampusContext";
 
 interface PublicUser {
@@ -26,7 +28,25 @@ interface PublicUser {
   schedule?: EditorSchedule;
 }
 
+interface AccessLogEntry {
+  at: string;
+  email: string;
+  name: string;
+  role: string;
+  campus: string;
+  result: "ok" | "credenciales" | "horario";
+  ip: string;
+}
+
+function logResultLabel(result: AccessLogEntry["result"]) {
+  if (result === "horario") return "Fuera de horario";
+  if (result === "credenciales") return "Credenciales incorrectas";
+  return "Entró";
+}
+
 export default function UsuariosAdminPage() {
+  const { data: session } = useSession();
+  const isSuperuser = session?.user?.email?.trim().toLowerCase() === "admin@auditorio.local";
   const [users, setUsers] = useState<PublicUser[]>([]);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -42,6 +62,9 @@ export default function UsuariosAdminPage() {
   const [filterCampus, setFilterCampus] = useState<Campus | "">("");
   const [filterRole, setFilterRole] = useState<Role | "">("");
   const [scheduleUser, setScheduleUser] = useState<PublicUser | null>(null);
+  const [openLogs, setOpenLogs] = useState(false);
+  const [logs, setLogs] = useState<AccessLogEntry[]>([]);
+  const [logsBusy, setLogsBusy] = useState(false);
 
   const filtered = useMemo(() => {
     const needle = filterName.trim().toLowerCase();
@@ -268,6 +291,27 @@ export default function UsuariosAdminPage() {
         </table>
       </section>
 
+      {isSuperuser ? (
+        <section className="card p-5">
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={logsBusy}
+            onClick={() => {
+              setOpenLogs(true);
+              setLogsBusy(true);
+              setError("");
+              void apiFetch<{ logs: AccessLogEntry[] }>("/api/access-logs")
+                .then((data) => setLogs(data.logs))
+                .catch((err) => setError(err instanceof Error ? err.message : "No se pudieron cargar los logs"))
+                .finally(() => setLogsBusy(false));
+            }}
+          >
+            {logsBusy ? "Cargando…" : "Logs"}
+          </button>
+        </section>
+      ) : null}
+
       {openCreate
         ? createPortal(
             <div
@@ -457,6 +501,63 @@ export default function UsuariosAdminPage() {
                 }
               }}
             />,
+            document.body,
+          )
+        : null}
+
+      {openLogs
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[90] flex items-end justify-center bg-navy/70 p-3 sm:items-center"
+              onClick={() => setOpenLogs(false)}
+            >
+              <div
+                className="card max-h-[92dvh] w-full max-w-4xl overflow-hidden p-5"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <h3 className="font-display text-2xl">Logs de inicio de sesión</h3>
+                  <button type="button" className="btn-ghost" onClick={() => setOpenLogs(false)}>
+                    Cerrar
+                  </button>
+                </div>
+                <div className="max-h-[70dvh] overflow-auto">
+                  <table className="w-full min-w-[640px] text-left text-sm">
+                    <thead>
+                      <tr className="text-ink-muted">
+                        <th className="pb-2">Fecha</th>
+                        <th className="pb-2">Correo</th>
+                        <th className="pb-2">Nombre</th>
+                        <th className="pb-2">Rol</th>
+                        <th className="pb-2">Campus</th>
+                        <th className="pb-2">Resultado</th>
+                        <th className="pb-2">IP</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {logs.map((item, index) => (
+                        <tr key={`${item.at}-${item.email}-${index}`} className="border-t border-slate-200">
+                          <td className="py-2">{item.at ? formatDateTime(item.at) : "—"}</td>
+                          <td>{item.email || "—"}</td>
+                          <td>{item.name || "—"}</td>
+                          <td>{item.role || "—"}</td>
+                          <td>{item.campus || "—"}</td>
+                          <td>{logResultLabel(item.result)}</td>
+                          <td className="text-xs text-ink-muted">{item.ip || "—"}</td>
+                        </tr>
+                      ))}
+                      {!logs.length && !logsBusy ? (
+                        <tr>
+                          <td colSpan={7} className="py-3 text-ink-muted">
+                            Aún no hay inicios de sesión registrados.
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>,
             document.body,
           )
         : null}

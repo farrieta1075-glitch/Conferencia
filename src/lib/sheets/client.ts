@@ -22,6 +22,7 @@ export const SHEET_TABS = [
   "Pagos",
   "Notificaciones",
   "Usuarios",
+  "Accesos",
 ] as const;
 
 export function normalizePrivateKey(raw: string): string {

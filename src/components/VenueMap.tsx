@@ -16,7 +16,7 @@ import {
   stagePath,
   walkwayPath,
 } from "@/lib/geometry";
-import { boundsOf, findNeighbors, sectionAtPoint, viewMapBounds, viewToMap } from "@/lib/mapView";
+import { boundsOf, findNeighbors, sectionAtPoint, sectionOverlapsView, viewMapBounds, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
 import { findPurchaseBySeat, isNamelessBlock } from "@/lib/purchases";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
@@ -97,6 +97,8 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const isAdmin = useCurrentRole() === "ADMIN";
   const [blocking, setBlocking] = useState(false);
   const [blockError, setBlockError] = useState("");
+  const [expanded, setExpanded] = useState(false);
+  const [pinnedSection, setPinnedSection] = useState<string | null>(null);
 
   const geometries = useMemo(
     () => buildSectionGeometry(state.tabulador),
@@ -190,23 +192,26 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
       ? `${AREA_SHORT_LABELS[hovered.areaId]} ${hovered.sectionId}`
       : "Mapa general";
 
+  const mapView = viewMapBounds(transform);
   const seatFocus = useMemo(() => {
     const empty = { ids: new Set<string>(), primary: null as string | null };
-    if (transform.k < 1.85) return empty;
-    const primary = sectionAtPoint(geometries, viewCenter.x, viewCenter.y);
-    if (!primary) return empty;
-    const ids = new Set<string>([primary.sectionId]);
-    if (transform.k >= 2.4) {
-      const neighbors = findNeighbors(geometries, primary.sectionId);
-      if (neighbors.left) ids.add(neighbors.left.sectionId);
-      if (neighbors.right) ids.add(neighbors.right.sectionId);
-      if (transform.k >= 3.1) {
-        if (neighbors.inward) ids.add(neighbors.inward.sectionId);
-        if (neighbors.outward) ids.add(neighbors.outward.sectionId);
-      }
+    if (transform.k < 1.55) return empty;
+    const visible = new Set(
+      geometries.filter((geo) => sectionOverlapsView(geo, mapView, 80)).map((geo) => geo.sectionId),
+    );
+    const atCenter = sectionAtPoint(geometries, viewCenter.x, viewCenter.y)?.sectionId ?? null;
+    const primary = atCenter ?? (pinnedSection && visible.has(pinnedSection) ? pinnedSection : [...visible][0] ?? null);
+    if (primary) visible.add(primary);
+    if (pinnedSection && transform.k >= 1.55) {
+      visible.add(pinnedSection);
+      const neighbors = findNeighbors(geometries, pinnedSection);
+      if (neighbors.left) visible.add(neighbors.left.sectionId);
+      if (neighbors.right) visible.add(neighbors.right.sectionId);
+      if (neighbors.inward) visible.add(neighbors.inward.sectionId);
+      if (neighbors.outward) visible.add(neighbors.outward.sectionId);
     }
-    return { ids, primary: primary.sectionId };
-  }, [geometries, transform.k, viewCenter.x, viewCenter.y]);
+    return { ids: visible, primary };
+  }, [geometries, mapView, pinnedSection, transform.k, viewCenter.x, viewCenter.y]);
 
   useEffect(() => {
     if (!setFocus || !clearFocus) return;
@@ -226,6 +231,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   function zoomToSection(sectionId: string) {
     const geo = geometries.find((item) => item.sectionId === sectionId);
     if (!geo) return;
+    setPinnedSection(sectionId);
     const centroid = sectionCentroid(geo);
     setProbe({ x: centroid.x, y: centroid.y });
     const box = boundsOf([geo]);
@@ -248,7 +254,6 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   const peekSectionIds = new Set(
     peek?.purchase.tickets.map((ticket) => parseSeatId(ticket.seatId).sectionId) ?? [],
   );
-  const mapView = viewMapBounds(transform);
   const selectedSeats = selected
     .map((id) => seatIndex.get(id))
     .filter((seat): seat is SeatRef => Boolean(seat));
@@ -277,12 +282,12 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
         return;
       }
       setPeek(null);
-      if (!canSell || status !== "available") return;
+      if (expanded || !canSell || status !== "available") return;
       setSelected((current) =>
         current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
       );
     },
-    [canSell, state.purchases],
+    [canSell, expanded, state.purchases],
   );
 
   const handleSeatHover = useCallback((seat: SeatHover | null, pointerType?: string) => {
@@ -302,6 +307,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
   function handleReset() {
     setSelected([]);
     setPeek(null);
+    setPinnedSection(null);
     clearFocus?.();
     reset();
   }
@@ -332,39 +338,97 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     runControlTap(() => handleReset());
   }
 
+  function handleExpandTap(event: React.SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    runControlTap(() => {
+      setPeek(null);
+      setSelected([]);
+      setOpen(false);
+      setExpanded(true);
+    });
+  }
+
+  function handleCollapseTap(event: React.SyntheticEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    runControlTap(() => setExpanded(false));
+  }
+
+  useEffect(() => {
+    if (!expanded) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setExpanded(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expanded]);
+
+  const mapChrome = (
+    <div className="relative z-20 flex gap-1.5 sm:gap-2 phone-landscape:gap-1">
+      <button
+        type="button"
+        className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:min-w-8 phone-landscape:px-2 phone-landscape:text-base"
+        onPointerUp={handleZoomIn}
+        onClick={handleZoomIn}
+      >
+        +
+      </button>
+      <button
+        type="button"
+        className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:min-w-8 phone-landscape:px-2 phone-landscape:text-base"
+        onPointerUp={handleZoomOut}
+        onClick={handleZoomOut}
+      >
+        −
+      </button>
+      <button
+        type="button"
+        className="btn-ghost min-h-11 px-3 sm:min-h-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:px-2 phone-landscape:text-xs"
+        onPointerUp={handleResetTap}
+        onClick={handleResetTap}
+      >
+        Ver todo
+      </button>
+      {expanded ? (
+        <button
+          type="button"
+          className="btn-primary min-h-11 px-3 sm:min-h-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:px-2 phone-landscape:text-xs"
+          onPointerUp={handleCollapseTap}
+          onClick={handleCollapseTap}
+        >
+          Cerrar
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn-ghost min-h-11 px-3 sm:min-h-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:px-2 phone-landscape:text-xs"
+          onPointerUp={handleExpandTap}
+          onClick={handleExpandTap}
+        >
+          Pantalla completa
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <div className="card flex h-full min-h-0 flex-col overflow-hidden">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2 phone-landscape:gap-1 phone-landscape:px-2 phone-landscape:py-0.5">
+    <div
+      className={
+        expanded
+          ? "fixed inset-0 z-[100] flex h-dvh flex-col overflow-hidden bg-navy"
+          : "card flex h-full min-h-0 flex-col overflow-hidden"
+      }
+    >
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5 sm:gap-2 sm:px-3 sm:py-2 phone-landscape:gap-1 phone-landscape:px-2 phone-landscape:py-0.5">
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-wider text-bronze-dark sm:text-xs phone-landscape:hidden">{mapTitle}</p>
           <h2 className="font-display truncate text-lg text-ink sm:text-xl lg:text-2xl phone-landscape:text-sm">Auditorio Nacional</h2>
+          {expanded ? (
+            <p className="text-xs text-ink-muted">Consulta: toca apartados o vendidos para ver el detalle. Cierra para seguir vendiendo.</p>
+          ) : null}
         </div>
-        <div className="relative z-20 flex gap-1.5 sm:gap-2 phone-landscape:gap-1">
-          <button
-            type="button"
-            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:min-w-8 phone-landscape:px-2 phone-landscape:text-base"
-            onPointerUp={handleZoomIn}
-            onClick={handleZoomIn}
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className="btn-ghost min-h-11 min-w-11 px-3 text-lg sm:min-h-12 sm:min-w-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:min-w-8 phone-landscape:px-2 phone-landscape:text-base"
-            onPointerUp={handleZoomOut}
-            onClick={handleZoomOut}
-          >
-            −
-          </button>
-          <button
-            type="button"
-            className="btn-ghost min-h-11 px-3 sm:min-h-12 sm:px-4 phone-landscape:min-h-8 phone-landscape:px-2 phone-landscape:text-xs"
-            onPointerUp={handleResetTap}
-            onClick={handleResetTap}
-          >
-            Ver todo
-          </button>
-        </div>
+        {mapChrome}
       </div>
       <div className="relative min-h-0 flex-1 bg-navy-deep">
         <svg
@@ -475,7 +539,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       view={mapView}
                       selected={selectedSet}
                       peeked={peekedSet}
-                      includeUnassigned={geo.sectionId === seatFocus.primary && transform.k >= 1.85}
+                      includeUnassigned={seatFocus.ids.has(geo.sectionId)}
                       statusOf={statusOf}
                       onSeatClick={onSeatClick}
                       onSeatHover={handleSeatHover}
@@ -566,7 +630,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           : null}
       </div>
       <RoleGate allow="sales:create">
-        {!!selected.length && (
+        {!expanded && !!selected.length && (
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
             <p className="text-sm text-ink-muted">
               {selected.length} asiento(s) · {money(total)}. Toca de nuevo para quitar.
@@ -603,7 +667,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
           </div>
         )}
         <PurchaseModal
-          open={open}
+          open={open && !expanded}
           seats={selectedSeats}
           onClose={() => setOpen(false)}
           onCompleted={() => {
@@ -657,7 +721,7 @@ const SectionSeats = memo(function SectionSeats({
   const w = Math.max(1.15, Math.min(seatW, pitch * 0.84));
   const h = Math.max(1, Math.min(seatH, rowH * 0.62, w * 0.9));
   const hit = Math.max(w, h, 16 / zoom);
-  const pad = Math.max(w, h, 12);
+  const pad = Math.max(w, h, 28);
   const showCode = w * zoom > 9.5;
 
   return (
