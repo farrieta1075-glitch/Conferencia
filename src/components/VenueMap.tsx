@@ -36,6 +36,9 @@ const STATUS_FILL: Record<SeatStatus, string> = {
   sold: COLORS.sold,
 };
 
+const SEATS_START_K = 1.55;
+const ZONE_LOCK_K = 2.35;
+
 const LEGEND: { label: string; color: string }[] = [
   { label: "Zona con venta", color: COLORS.saleZoneActive },
   { label: "No asignado", color: COLORS.unassigned },
@@ -194,24 +197,37 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
 
   const mapView = viewMapBounds(transform);
   const seatFocus = useMemo(() => {
-    const empty = { ids: new Set<string>(), primary: null as string | null };
-    if (transform.k < 1.55) return empty;
-    const visible = new Set(
-      geometries.filter((geo) => sectionOverlapsView(geo, mapView, 80)).map((geo) => geo.sectionId),
-    );
+    const empty = { ids: new Set<string>(), primary: null as string | null, lock: false };
+    if (transform.k < SEATS_START_K) return empty;
+    const overlapping = geometries.filter((geo) => sectionOverlapsView(geo, mapView, 56));
     const atCenter = sectionAtPoint(geometries, viewCenter.x, viewCenter.y)?.sectionId ?? null;
-    const primary = atCenter ?? (pinnedSection && visible.has(pinnedSection) ? pinnedSection : [...visible][0] ?? null);
-    if (primary) visible.add(primary);
-    if (pinnedSection && transform.k >= 1.55) {
-      visible.add(pinnedSection);
-      const neighbors = findNeighbors(geometries, pinnedSection);
-      if (neighbors.left) visible.add(neighbors.left.sectionId);
-      if (neighbors.right) visible.add(neighbors.right.sectionId);
-      if (neighbors.inward) visible.add(neighbors.inward.sectionId);
-      if (neighbors.outward) visible.add(neighbors.outward.sectionId);
+    const lock = Boolean(pinnedSection) || transform.k >= ZONE_LOCK_K;
+    const primary = pinnedSection ?? atCenter ?? overlapping[0]?.sectionId ?? null;
+    if (!lock) {
+      return {
+        ids: new Set(overlapping.map((geo) => geo.sectionId)),
+        primary: atCenter ?? overlapping[0]?.sectionId ?? null,
+        lock: false,
+      };
     }
-    return { ids: visible, primary };
+    if (!primary) return empty;
+    const ids = new Set<string>([primary]);
+    const neighbors = findNeighbors(geometries, primary);
+    for (const neighbor of [neighbors.left, neighbors.right, neighbors.inward, neighbors.outward]) {
+      if (neighbor && sectionOverlapsView(neighbor, mapView, 40)) ids.add(neighbor.sectionId);
+    }
+    return { ids, primary, lock: true };
   }, [geometries, mapView, pinnedSection, transform.k, viewCenter.x, viewCenter.y]);
+
+  useEffect(() => {
+    if (transform.k < SEATS_START_K) {
+      if (pinnedSection) setPinnedSection(null);
+      return;
+    }
+    if (pinnedSection || transform.k < ZONE_LOCK_K) return;
+    const atCenter = sectionAtPoint(geometries, viewCenter.x, viewCenter.y)?.sectionId;
+    if (atCenter) setPinnedSection(atCenter);
+  }, [geometries, pinnedSection, transform.k, viewCenter.x, viewCenter.y]);
 
   useEffect(() => {
     if (!setFocus || !clearFocus) return;
@@ -267,7 +283,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
       setPeek(null);
       return;
     }
-    if (seatFocus.ids.has(sectionId) && transform.k >= 1.85) return;
+    if (seatFocus.lock && seatFocus.primary === sectionId) return;
     zoomToSection(sectionId);
   }
 
@@ -539,7 +555,8 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                       view={mapView}
                       selected={selectedSet}
                       peeked={peekedSet}
-                      includeUnassigned={seatFocus.ids.has(geo.sectionId)}
+                      includeUnassigned={geo.sectionId === seatFocus.primary}
+                      retainOffscreen={seatFocus.lock && geo.sectionId === seatFocus.primary}
                       statusOf={statusOf}
                       onSeatClick={onSeatClick}
                       onSeatHover={handleSeatHover}
@@ -693,6 +710,7 @@ const SectionSeats = memo(function SectionSeats({
   selected,
   peeked,
   includeUnassigned,
+  retainOffscreen,
   statusOf,
   onSeatClick,
   onSeatHover,
@@ -709,6 +727,7 @@ const SectionSeats = memo(function SectionSeats({
   selected: Set<string>;
   peeked: Set<string>;
   includeUnassigned: boolean;
+  retainOffscreen: boolean;
   statusOf: (id: string) => SeatStatus;
   onSeatClick: (id: string, status: SeatStatus, clientX: number, clientY: number) => void;
   onSeatHover: (seat: SeatHover | null, pointerType?: string) => void;
@@ -739,10 +758,11 @@ const SectionSeats = memo(function SectionSeats({
             : geo.rInner + ((rowIndex + 0.55) / Math.max(rows.length, 1)) * (geo.rOuter - geo.rInner);
           const point = polarAtRadius(geo, radius, item.t);
           if (
-            point.x < view.minX - pad ||
-            point.x > view.maxX + pad ||
-            point.y < view.minY - pad ||
-            point.y > view.maxY + pad
+            !retainOffscreen &&
+            (point.x < view.minX - pad ||
+              point.x > view.maxX + pad ||
+              point.y < view.minY - pad ||
+              point.y > view.maxY + pad)
           ) {
             return null;
           }
