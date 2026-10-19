@@ -1,5 +1,5 @@
 import { DEFAULT_CAMPUS } from "@/lib/campus";
-import { seatId } from "@/lib/format";
+import { roundMoney, seatId } from "@/lib/format";
 import { paymentMethodLabel, parsePaymentMethod } from "@/lib/import/campusSales";
 import { activePayments, findPurchaseBySeat } from "@/lib/purchases";
 import { readTab } from "@/lib/sheets/campusRows";
@@ -48,15 +48,20 @@ function sectionFromZona(raw: unknown): string {
   return canonicalizeSectionId(match?.[1] ?? text);
 }
 
-function formatMxDate(iso: string): string {
+const MONTHS_DDMMM = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+function formatDdMmm(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return new Intl.DateTimeFormat("es-MX", {
+  const parts = new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
-    month: "short",
-    year: "numeric",
+    month: "numeric",
     timeZone: "America/Mexico_City",
-  }).format(date);
+  }).formatToParts(date);
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  const monthIndex = Number(parts.find((part) => part.type === "month")?.value ?? "0") - 1;
+  const month = MONTHS_DDMMM[monthIndex] ?? "";
+  return `${day}${month}`;
 }
 
 function formatPago(amount: number): string {
@@ -68,10 +73,20 @@ function formatPago(amount: number): string {
   }).format(amount);
 }
 
+function sameText(left: unknown, right: unknown): boolean {
+  return String(left ?? "").trim() === String(right ?? "").trim();
+}
+
 export function formatPurchasePaymentsLine(purchase: Purchase): string {
   const payments = activePayments(purchase).slice().sort((a, b) => a.date.localeCompare(b.date));
   if (!payments.length) return "";
-  const parts = payments.map((item) => `${formatPago(item.amount)} (${formatMxDate(item.date)})`);
+  const ticketCount = Math.max(1, purchase.tickets.length);
+  const ticketsTotal = purchase.tickets.reduce((sum, ticket) => sum + ticket.price, 0) || purchase.total;
+  if (payments[0].amount + 0.009 >= ticketsTotal) return "";
+  const parts = payments.map((item) => {
+    const share = roundMoney(item.amount / ticketCount);
+    return `${formatPago(share)} (${formatDdMmm(item.date)})`;
+  });
   return `Apartado con ${parts.join(" + ")}`;
 }
 
@@ -107,6 +122,7 @@ export async function updateQroSheetPayments(): Promise<QroSheetUpdateSummary> {
     asiento: headerIndex(headers, ["asiento", "asientos", "butaca", "numero"]),
     cliente: headerIndex(headers, ["cliente", "nombre"]),
     forma: headerIndex(headers, ["formadepago", "metododepago"]),
+    comentarios: headerIndex(headers, ["comentarios", "comentario"]),
   };
   if (cols.zona < 0 || cols.fila < 0 || cols.asiento < 0) {
     throw new Error("La hoja QRO no tiene Zona, Fila y Asiento");
@@ -135,7 +151,9 @@ export async function updateQroSheetPayments(): Promise<QroSheetUpdateSummary> {
       continue;
     }
     const ticket = purchase.tickets.find((item) => item.seatId === id);
-    const payments = formatPurchasePaymentsLine(purchase);
+    let payments = formatPurchasePaymentsLine(purchase);
+    const comentarios = String(row[cols.comentarios >= 0 ? cols.comentarios : 15] ?? "");
+    if (payments && sameText(comentarios, payments)) payments = "";
     const holder = ticket?.holderName?.trim() ?? "";
     const cliente = cols.cliente >= 0 ? String(row[cols.cliente] ?? "").trim() : "";
     const titular = holder && normName(holder) !== normName(cliente) ? holder : "";

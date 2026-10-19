@@ -193,9 +193,10 @@ export function ImportCampusSales() {
       <details className="card p-4">
         <summary className="cursor-pointer font-semibold">Actualizar hoja QRO</summary>
         <p className="mt-2 text-sm text-ink-muted">
-          Escribe en la columna Q los pagos de cada asiento (Apartado con monto y fecha). Si el
-          titular no coincide con Cliente, va en la columna R; si el método no coincide con Forma de
-          Pago, va en la columna S (Tarjeta o Efectivo).
+          Escribe en la columna Q los pagos de cada asiento, repartidos entre los boletos de la
+          compra (Apartado con monto y fecha ddmmm). Si el primer pago cubrió el total, o si P ya
+          tiene el mismo texto, Q queda vacía. Si el titular no coincide con Cliente, va en R; si el
+          método no coincide con Forma de Pago, va en S (Tarjeta o Efectivo).
         </p>
         <button
           type="button"
