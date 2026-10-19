@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { NextResponse } from "next/server";
+import { isSuperuserEmail } from "@/lib/auth/accessLogs";
 import { hasPermission, type Permission, type Role } from "@/lib/auth/roles";
 
 export class HttpError extends Error {
@@ -27,6 +28,14 @@ export async function requirePermission(permission: Permission) {
     }
   }
   return { session, role, user: session.user };
+}
+
+export async function requireSuperuser() {
+  const ctx = await requirePermission("users:manage");
+  if (!isSuperuserEmail(ctx.user.email)) {
+    throw new HttpError(403, "Solo admin@auditorio.local puede hacer esta operación");
+  }
+  return ctx;
 }
 
 export function jsonError(error: unknown) {

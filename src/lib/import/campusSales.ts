@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
-import { dataCampusOf, parseCampus, type DataCampus } from "@/lib/campus";
+import { DEFAULT_CAMPUS, dataCampusOf, parseCampus, type DataCampus } from "@/lib/campus";
 import { NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import { seatId } from "@/lib/format";
 import { purchaseSeatStatus } from "@/lib/purchases";
@@ -16,6 +16,17 @@ export interface CampusSalesImportSummary {
   sold: number;
   held: number;
   purchases: number;
+  skippedForeign: number;
+  skippedInvalid: number;
+}
+
+export interface CampusClientDiff {
+  campus: DataCampus;
+  ignored?: boolean;
+  modified: number;
+  added: number;
+  removed: number;
+  changed: number;
   skippedForeign: number;
   skippedInvalid: number;
 }
@@ -244,6 +255,56 @@ function buildPurchases(campus: DataCampus, rows: SourceRow[]): Purchase[] {
   return purchases;
 }
 
+function diffClients(existing: Map<string, string>, incoming: Map<string, string>) {
+  const seats = new Set([...existing.keys(), ...incoming.keys()]);
+  let added = 0;
+  let removed = 0;
+  let changed = 0;
+  for (const seat of seats) {
+    const before = existing.get(seat) ?? "";
+    const after = incoming.get(seat) ?? "";
+    if (!before && after) added += 1;
+    else if (before && !after) removed += 1;
+    else if (before && after && norm(before) !== norm(after)) changed += 1;
+  }
+  return { added, removed, changed, modified: added + removed + changed };
+}
+
+async function clientsBySeat(spreadsheetId: string, campus: DataCampus): Promise<Map<string, string>> {
+  const boletos = await readTab(spreadsheetId, "Boletos!A1:G");
+  const map = new Map<string, string>();
+  for (const row of boletos.slice(1)) {
+    if (dataCampusOf(row[6]) !== campus) continue;
+    const id = String(row[2] ?? "").trim();
+    if (!id) continue;
+    map.set(id, String(row[3] ?? "").trim());
+  }
+  return map;
+}
+
+function usableRows(
+  rows: SourceRow[],
+  foreign: Set<string>,
+): { usable: SourceRow[]; skippedForeign: number; skippedInvalid: number } {
+  let skippedForeign = 0;
+  let skippedInvalid = 0;
+  const usable: SourceRow[] = [];
+  const seenSeats = new Set<string>();
+  for (const row of rows) {
+    if (!row.seat) {
+      skippedInvalid += 1;
+      continue;
+    }
+    if (foreign.has(row.seat) || seenSeats.has(row.seat)) {
+      skippedForeign += 1;
+      continue;
+    }
+    seenSeats.add(row.seat);
+    usable.push(row);
+  }
+  return { usable, skippedForeign, skippedInvalid };
+}
+
 async function foreignSeatIds(spreadsheetId: string, campus: DataCampus): Promise<Set<string>> {
   const existing = await readTab(spreadsheetId, "Disponibilidad!A1:Z");
   const foreign = new Set<string>();
@@ -291,23 +352,9 @@ export async function importCampusSalesWorkbook(buffer: ArrayBuffer): Promise<Ca
   const summaries: CampusSalesImportSummary[] = [];
 
   for (const { campus, rows } of parsed) {
+    if (campus === DEFAULT_CAMPUS) continue;
     const foreign = await foreignSeatIds(spreadsheetId, campus);
-    let skippedForeign = 0;
-    let skippedInvalid = 0;
-    const usable: SourceRow[] = [];
-    const seenSeats = new Set<string>();
-    for (const row of rows) {
-      if (!row.seat) {
-        skippedInvalid += 1;
-        continue;
-      }
-      if (foreign.has(row.seat) || seenSeats.has(row.seat)) {
-        skippedForeign += 1;
-        continue;
-      }
-      seenSeats.add(row.seat);
-      usable.push(row);
-    }
+    const { usable, skippedForeign, skippedInvalid } = usableRows(rows, foreign);
 
     const purchases = buildPurchases(campus, usable);
     const seatStatus: Record<string, SeatStatus> = {};
@@ -337,5 +384,57 @@ export async function importCampusSalesWorkbook(buffer: ArrayBuffer): Promise<Ca
     });
   }
 
+  if (!summaries.length) {
+    throw new Error("No hay pestañas de otros campus para cargar. QRO no se modifica.");
+  }
   return summaries;
+}
+
+export async function previewCampusSalesWorkbook(buffer: ArrayBuffer): Promise<CampusClientDiff[]> {
+  if (!sheetsConfigured()) {
+    throw new Error("Google Sheets no está configurado");
+  }
+  const spreadsheetId = await getSpreadsheetId();
+  if (!spreadsheetId) throw new Error("Falta GOOGLE_SHEETS_ID");
+
+  const parsed = parseCampusSalesWorkbook(buffer);
+  const diffs: CampusClientDiff[] = [];
+
+  for (const { campus, rows } of parsed) {
+    if (campus === DEFAULT_CAMPUS) {
+      diffs.push({
+        campus,
+        ignored: true,
+        modified: 0,
+        added: 0,
+        removed: 0,
+        changed: 0,
+        skippedForeign: 0,
+        skippedInvalid: 0,
+      });
+      continue;
+    }
+    const foreign = await foreignSeatIds(spreadsheetId, campus);
+    const { usable, skippedForeign, skippedInvalid } = usableRows(rows, foreign);
+    const existing = await clientsBySeat(spreadsheetId, campus);
+    const incoming = new Map<string, string>();
+    for (const row of usable) {
+      incoming.set(row.seat, row.sold ? row.client : "");
+    }
+    const { added, removed, changed, modified } = diffClients(existing, incoming);
+    diffs.push({
+      campus,
+      modified,
+      added,
+      removed,
+      changed,
+      skippedForeign,
+      skippedInvalid,
+    });
+  }
+
+  if (!diffs.length) {
+    throw new Error("No hay pestañas con nombre de campus (TLC, CDMX, …)");
+  }
+  return diffs;
 }
