@@ -112,9 +112,10 @@ export function ImportCampusSales() {
         withPayments: number;
         titularDiff: number;
         methodDiff: number;
+        dateDiff: number;
       }>("/api/import/qro-sheet", { method: "POST" });
       setQroMessage(
-        `Hoja QRO actualizada: ${result.withPayments} filas con pagos, ${result.titularDiff} titulares distintos, ${result.methodDiff} métodos distintos (${result.rows} asientos).`,
+        `Hoja QRO actualizada: ${result.withPayments} filas con pagos, ${result.titularDiff} titulares distintos, ${result.methodDiff} métodos distintos, ${result.dateDiff} fechas distintas (${result.rows} asientos).`,
       );
     } catch (err) {
       setQroError(err instanceof Error ? err.message : "No se pudo actualizar la hoja QRO");
@@ -196,7 +197,8 @@ export function ImportCampusSales() {
           Escribe en la columna Q los pagos de cada asiento, repartidos entre los boletos de la
           compra (Apartado con monto y fecha ddmmm). Si el primer pago cubrió el total, o si P ya
           tiene el mismo texto, Q queda vacía. Si el titular no coincide con Cliente, va en R; si el
-          método no coincide con Forma de Pago, va en S (Tarjeta o Efectivo).
+          método no coincide con Forma de Pago, va en S (Tarjeta o Efectivo). Si la fecha del primer
+          pago no coincide con Fecha de Vendido (N), va en T.
         </p>
         <button
           type="button"
