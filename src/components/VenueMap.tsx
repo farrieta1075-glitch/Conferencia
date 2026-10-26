@@ -648,7 +648,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
       </div>
       <RoleGate allow="sales:create">
         {!expanded && !!selected.length && (
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
+          <div className="z-30 flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
             <p className="text-sm text-ink-muted">
               {selected.length} asiento(s) · {money(total)}. Toca de nuevo para quitar.
             </p>

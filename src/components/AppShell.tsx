@@ -46,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <main
             className={
               isSales
-                ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-surface p-1.5 pb-[calc(4.1rem+env(safe-area-inset-bottom))] sm:p-2 lg:p-4 lg:pb-4 phone-landscape:p-1 phone-landscape:pb-1"
+                ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-surface px-1.5 pt-1.5 pb-[calc(5.25rem+env(safe-area-inset-bottom))] sm:px-2 sm:pt-2 lg:p-4 lg:pb-4 phone-landscape:p-1 phone-landscape:pb-1"
                 : "min-h-0 flex-1 overflow-y-auto bg-surface p-3 pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:p-6 lg:pb-8 phone-landscape:p-2 phone-landscape:pb-2"
             }
           >
