@@ -33,11 +33,13 @@ import {
   indexSeats,
 } from "@/lib/tabulador/generator";
 import { rehomeSectionsByNumber, tabuladorHasLayout } from "@/lib/tabulador/xlsx";
+import { DEFAULT_NOTIFY_TEMPLATES, sortedNotifyTemplates } from "@/lib/notifyTemplates";
 import type {
   AreaId,
   AssignPayload,
   EventConfig,
   InstallmentCount,
+  NotifyTemplate,
   PersistedState,
   Promotion,
   Purchase,
@@ -75,6 +77,7 @@ type Action =
   | { type: "voidPayment"; id: string; paymentId: string; reason: string }
   | { type: "releaseBlock"; id: string }
   | { type: "setSeatStatus"; seatStatus: Record<string, SeatStatus> }
+  | { type: "setNotifyTemplates"; templates: NotifyTemplate[] }
   | { type: "resetVenue" };
 
 const defaultTabulador = buildDefaultTabulador();
@@ -98,6 +101,7 @@ function createDefaultState(): PersistedState {
     })),
     promotions: [],
     purchases: [],
+    notifyTemplates: DEFAULT_NOTIFY_TEMPLATES,
   };
 }
 
@@ -211,7 +215,10 @@ export async function buildPurchase(
 function reducer(state: PersistedState, action: Action): PersistedState {
   switch (action.type) {
     case "hydrate":
-      return action.state;
+      return {
+        ...action.state,
+        notifyTemplates: sortedNotifyTemplates(action.state.notifyTemplates),
+      };
     case "setEvent":
       return { ...state, event: action.event };
     case "setTabulador": {
@@ -293,6 +300,8 @@ function reducer(state: PersistedState, action: Action): PersistedState {
     }
     case "setSeatStatus":
       return { ...state, seatStatus: action.seatStatus };
+    case "setNotifyTemplates":
+      return { ...state, notifyTemplates: sortedNotifyTemplates(action.templates) };
     case "resetVenue":
       return createDefaultState();
     default:
@@ -414,6 +423,7 @@ interface StoreValue {
   saveSeatAssignments: (seatStatus: Record<string, SeatStatus>) => Promise<void>;
   resetVenue: () => Promise<void>;
   reloadFromSheets: () => Promise<void>;
+  saveNotifyTemplates: (templates: NotifyTemplate[]) => Promise<void>;
   statusOf: (id: string) => SeatStatus;
 }
 
@@ -766,6 +776,14 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
             forceSeatStatus: true,
           });
         }
+      },
+      saveNotifyTemplates: async (templates) => {
+        const next = sortedNotifyTemplates(templates);
+        const result = await apiFetch<{ ok: boolean; templates: NotifyTemplate[] }>("/api/notify-templates", {
+          method: "PUT",
+          body: JSON.stringify({ templates: next }),
+        });
+        dispatch({ type: "setNotifyTemplates", templates: result.templates ?? next });
       },
       resetVenue: async () => {
         pendingSheets = emptyPending();

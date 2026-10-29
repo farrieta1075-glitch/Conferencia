@@ -17,10 +17,12 @@ import type {
   PaymentRecord,
   Purchase,
   NotifyKind,
+  NotifyTemplate,
   ReminderJob,
   SeatStatus,
   VenueTabulador,
 } from "@/lib/types";
+import { DEFAULT_NOTIFY_TEMPLATES } from "@/lib/notifyTemplates";
 
 async function readRanges(spreadsheetId: string, ranges: string[]): Promise<string[][][]> {
   const sheets = getSheets();
@@ -144,16 +146,21 @@ function buildTabulador(
 }
 
 function parseNotifyKind(value: string): NotifyKind | undefined {
-  if (
-    value === "payment-reminder" ||
-    value === "purchase-thanks" ||
-    value === "event-details" ||
-    value === "last-details" ||
-    value === "post-event"
-  ) {
-    return value;
-  }
-  return undefined;
+  const kind = value.trim();
+  return kind || undefined;
+}
+
+function parseNotifyTemplates(rows: string[][]): NotifyTemplate[] {
+  const templates = rows
+    .slice(1)
+    .filter((row) => row[0] && row[1])
+    .map((row, index) => ({
+      id: row[0],
+      label: row[1],
+      body: row[2] ?? "",
+      order: Number(row[3]) || index + 1,
+    }));
+  return templates.length ? templates : DEFAULT_NOTIFY_TEMPLATES;
 }
 
 function buildPurchases(
@@ -282,6 +289,7 @@ export async function loadStateFromSheets(
     parcialidades,
     pagos,
     notificaciones,
+    plantillasNotif,
   ] = await readRanges(spreadsheetId, [
     "Evento!A1:E",
     "Logo!A1:Z",
@@ -294,6 +302,7 @@ export async function loadStateFromSheets(
     "Parcialidades!A1:G",
     "Pagos!A1:I",
     "Notificaciones!A1:I",
+    "PlantillasNotif!A1:D",
   ]);
 
   const eventoRows = filterCampusRows(evento, 4, campus);
@@ -382,6 +391,7 @@ export async function loadStateFromSheets(
       filterCampusRows(notificaciones, 8, campus),
       campus,
     ),
+    notifyTemplates: parseNotifyTemplates(plantillasNotif),
   };
 }
 

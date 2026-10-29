@@ -21,6 +21,7 @@ export const SHEET_TABS = [
   "Parcialidades",
   "Pagos",
   "Notificaciones",
+  "PlantillasNotif",
   "Usuarios",
   "Accesos",
 ] as const;

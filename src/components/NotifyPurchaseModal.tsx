@@ -3,20 +3,17 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AREA_LABELS, NO_EMAIL, NO_PHONE } from "@/lib/constants";
+import { useEventStore } from "@/context/EventStore";
 import { formatDate, formatDateTime, money, parseSeatId } from "@/lib/format";
-import { whatsAppPreviewUrl } from "@/lib/notifications";
+import { openWhatsAppChat } from "@/lib/notifications";
 import {
-  NOTIFY_KINDS,
   canNotifyPhone,
-  fillNotifyTemplate,
+  fillNotifyKind,
   notifyVarsFor,
+  sortedNotifyTemplates,
 } from "@/lib/notifyTemplates";
 import { activePayments, remainingBalance } from "@/lib/purchases";
 import type { NotifyKind, Purchase, ReminderJob, SeatRef } from "@/lib/types";
-
-function kindLabel(kind?: NotifyKind) {
-  return NOTIFY_KINDS.find((item) => item.id === kind)?.label ?? "Mensaje";
-}
 
 export function NotifyPurchaseModal({
   purchase,
@@ -33,11 +30,17 @@ export function NotifyPurchaseModal({
   onClose: () => void;
   onRecord: (reminder: ReminderJob) => Promise<void>;
 }) {
+  const { state } = useEventStore();
+  const templates = useMemo(
+    () => sortedNotifyTemplates(state.notifyTemplates),
+    [state.notifyTemplates],
+  );
   const vars = useMemo(
     () => notifyVarsFor(purchase, seatIndex, eventDatetime, installmentDate),
     [eventDatetime, installmentDate, purchase, seatIndex],
   );
   const [kind, setKind] = useState<NotifyKind | null>(null);
+  const [copiedHint, setCopiedHint] = useState("");
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState(
     purchase.customer.phone.trim().toLowerCase() === NO_PHONE ? "" : purchase.customer.phone,
@@ -62,10 +65,15 @@ export function NotifyPurchaseModal({
   const sent = (purchase.reminders ?? []).filter((item) => item.channel === "whatsapp");
   const remaining = remainingBalance(purchase);
 
+  function kindLabel(id?: NotifyKind) {
+    return templates.find((item) => item.id === id)?.label ?? "Mensaje";
+  }
+
   function selectKind(next: NotifyKind) {
     setKind(next);
-    setMessage(fillNotifyTemplate(next, vars));
+    setMessage(fillNotifyKind(next, vars, templates));
     setError("");
+    setCopiedHint("");
   }
 
   async function send() {
@@ -96,7 +104,12 @@ export function NotifyPurchaseModal({
     };
     try {
       await onRecord(reminder);
-      window.open(whatsAppPreviewUrl(phone, message.trim()), "_blank", "noopener,noreferrer");
+      const copied = await openWhatsAppChat(phone, message.trim());
+      setCopiedHint(
+        copied
+          ? "Mensaje copiado con iconos. Si WhatsApp Business abre el chat vacío o sin emojis, pégalo en el cuadro (Ctrl+V o pegar)."
+          : "Se abrió WhatsApp. Si no aparecen los iconos, copia el texto del recuadro y pégalo en el chat.",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo registrar la notificación");
     } finally {
@@ -173,7 +186,7 @@ export function NotifyPurchaseModal({
             <div>
               <p className="mb-1 text-sm font-semibold">Tipo de comunicación</p>
               <div className="flex flex-col gap-2">
-                {NOTIFY_KINDS.map((item) => (
+                {templates.map((item) => (
                   <button
                     key={item.id}
                     type="button"
@@ -237,6 +250,7 @@ export function NotifyPurchaseModal({
           </div>
         </div>
         <div className="shrink-0 border-t border-slate-200 px-4 py-3 sm:px-5">
+          {copiedHint ? <p className="mb-2 text-sm text-available">{copiedHint}</p> : null}
           {error ? <p className="mb-2 text-sm text-sold">{error}</p> : null}
           <button
             type="button"

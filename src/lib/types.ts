@@ -96,12 +96,14 @@ export interface PaymentRecord {
   cancelledAt?: string;
 }
 
-export type NotifyKind =
-  | "payment-reminder"
-  | "purchase-thanks"
-  | "event-details"
-  | "last-details"
-  | "post-event";
+export type NotifyKind = string;
+
+export interface NotifyTemplate {
+  id: string;
+  label: string;
+  body: string;
+  order: number;
+}
 
 export interface ReminderJob {
   id: string;
@@ -153,6 +155,7 @@ export interface PersistedState {
   prices: AreaPrice[];
   promotions: Promotion[];
   purchases: Purchase[];
+  notifyTemplates?: NotifyTemplate[];
 }
 
 export interface AssignPayload {

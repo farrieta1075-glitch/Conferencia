@@ -1,12 +1,14 @@
 import type {
   AreaPrice,
   EventConfig,
+  NotifyTemplate,
   PersistedState,
   Promotion,
   Purchase,
   SeatStatus,
   VenueTabulador,
 } from "@/lib/types";
+import { sortedNotifyTemplates } from "@/lib/notifyTemplates";
 import { DEFAULT_CAMPUS, dataCampusOf, type DataCampus } from "@/lib/campus";
 import { remainingBalance } from "@/lib/purchases";
 import { listUsers } from "@/lib/auth/users";
@@ -35,6 +37,7 @@ export interface SheetsDelta {
   writeUsers?: boolean;
   forceSeatStatus?: boolean;
   campus?: DataCampus;
+  notifyTemplates?: NotifyTemplate[];
 }
 
 function rows(values: (string | number)[][]) {
@@ -324,6 +327,14 @@ export async function applySheetsDelta(delta: SheetsDelta) {
     );
   }
 
+  if (delta.notifyTemplates) {
+    const templates = sortedNotifyTemplates(delta.notifyTemplates);
+    await replaceTab(spreadsheetId, "PlantillasNotif", [
+      ["id", "etiqueta", "cuerpo", "orden"],
+      ...templates.map((item) => [item.id, item.label, item.body, item.order]),
+    ]);
+  }
+
   if (delta.writeUsers) {
     await writeUsersToSheets(await listUsers());
   }
@@ -347,6 +358,7 @@ export async function syncStateToSheets(
     prices: state.prices,
     promotions: state.promotions,
     purchases: state.purchases,
+    notifyTemplates: state.notifyTemplates,
     seatStatus: state.seatStatus,
     tabulador: options?.writeTabulador ? state.tabulador : undefined,
     writeTabulador: options?.writeTabulador,

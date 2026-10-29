@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { NotifyTemplatesEditor } from "@/components/NotifyTemplatesEditor";
 import { RoleGate } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
 import { apiFetch } from "@/lib/api/client";
@@ -77,6 +78,7 @@ export default function EventoAdminPage() {
   }
 
   return (
+    <div className="space-y-4">
     <div className="card max-w-2xl p-6">
       <h2 className="font-display text-3xl phone-landscape:text-xl">Configuración del evento</h2>
       <div className="mt-5 grid gap-4">
@@ -159,6 +161,8 @@ export default function EventoAdminPage() {
           </button>
         </div>
       </RoleGate>
+    </div>
+    <NotifyTemplatesEditor />
     </div>
   );
 }

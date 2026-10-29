@@ -19,7 +19,7 @@ export function permissionForRequest(
 
   if (pathname.startsWith("/api/users") || pathname.startsWith("/api/access-logs")) return "users:manage";
   if (pathname.startsWith("/api/venues") && verb === "DELETE") return "venues:delete";
-  if (pathname.startsWith("/api/event")) return "event:edit";
+  if (pathname.startsWith("/api/event") || pathname.startsWith("/api/notify-templates")) return "event:edit";
   if (pathname.startsWith("/api/prices") || pathname.startsWith("/api/promotions")) {
     return "prices:edit";
   }

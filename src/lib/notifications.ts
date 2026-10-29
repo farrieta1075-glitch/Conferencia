@@ -47,5 +47,35 @@ export function whatsAppDigits(phone: string): string {
 }
 
 export function whatsAppPreviewUrl(phone: string, message: string): string {
-  return `https://wa.me/${whatsAppDigits(phone)}?text=${encodeURIComponent(message)}`;
+  const text = message.normalize("NFC");
+  return `https://api.whatsapp.com/send?phone=${whatsAppDigits(phone)}&text=${encodeURIComponent(text)}`;
+}
+
+export async function copyText(value: string): Promise<boolean> {
+  const text = value.normalize("NFC");
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(area);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export async function openWhatsAppChat(phone: string, message: string): Promise<boolean> {
+  const copied = await copyText(message);
+  window.open(whatsAppPreviewUrl(phone, message), "_blank", "noopener,noreferrer");
+  return copied;
 }
