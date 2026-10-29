@@ -23,6 +23,24 @@ export function formatDate(iso: string): string {
   }).format(new Date(iso));
 }
 
+const NOTIFY_MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+export function formatNotifyInstallmentDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+  const monthIndex = Number(parts.find((part) => part.type === "month")?.value ?? "0") - 1;
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = NOTIFY_MONTHS[monthIndex] ?? "";
+  return `${day} de ${month} de ${year}`;
+}
+
 export function formatLiveClock(date: Date): string {
   return new Intl.DateTimeFormat("es-MX", {
     weekday: "short",

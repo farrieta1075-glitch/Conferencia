@@ -1,5 +1,5 @@
 import { AREA_LABELS, NO_PHONE } from "./constants";
-import { formatDate } from "./format";
+import { formatNotifyInstallmentDate } from "./format";
 import { remainingBalance } from "./purchases";
 import type { NotifyKind, NotifyTemplate, Purchase, SeatRef } from "./types";
 
@@ -116,7 +116,7 @@ export function notifyVarsFor(
     zona: [...zones].join(", ") || "—",
     asientos: asientos.join(", ") || "—",
     n: String(daysUntilEvent(eventDatetime)),
-    fechaParcialidad: installmentDate ? formatDate(installmentDate) : "tu próxima fecha",
+    fechaParcialidad: installmentDate ? formatNotifyInstallmentDate(installmentDate) : "tu próxima fecha",
     compraOPago: remainingBalance(purchase) <= 0.009 ? "compra" : "pago exitoso",
   };
 }

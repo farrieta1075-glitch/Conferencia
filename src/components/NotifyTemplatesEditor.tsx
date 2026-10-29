@@ -14,6 +14,7 @@ export function NotifyTemplatesEditor() {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(sortedNotifyTemplates(state.notifyTemplates));
@@ -42,15 +43,17 @@ export function NotifyTemplatesEditor() {
 
   function addTemplate() {
     const order = draft.reduce((max, item) => Math.max(max, item.order), 0) + 1;
+    const id = `ntf-${Date.now()}`;
     setDraft((current) => [
       ...current,
       {
-        id: `ntf-${Date.now()}`,
+        id,
         label: "Nuevo mensaje",
         body: "¡Hola, [Nombre]! 👋",
         order,
       },
     ]);
+    setOpenId(id);
     setSaved(false);
   }
 
@@ -86,6 +89,7 @@ export function NotifyTemplatesEditor() {
   function restoreDefaults() {
     if (!window.confirm("¿Restaurar los 5 mensajes originales? Se perderán los cambios no guardados.")) return;
     setDraft(DEFAULT_NOTIFY_TEMPLATES);
+    setOpenId(null);
     setSaved(false);
   }
 
@@ -97,60 +101,77 @@ export function NotifyTemplatesEditor() {
         [Sección], [Zona], [Asientos], [N], [fecha de parcialidad], [compra / pago exitoso]. Incluye
         iconos/emojis en el texto; al enviar se copian al portapapeles para WhatsApp Business.
       </p>
-      <div className="mt-4 grid gap-4">
-        {sortedNotifyTemplates(draft).map((item, index) => (
-          <div key={item.id} className="rounded-2xl border border-slate-200 p-3">
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="min-w-[4.5rem] text-sm font-medium text-ink-muted">
-                Orden
-                <input
-                  className="field mt-1"
-                  type="number"
-                  min={1}
-                  value={item.order}
-                  onChange={(event) => update(item.id, { order: Number(event.target.value) || 1 })}
-                />
-              </label>
-              <label className="min-w-0 flex-1 text-sm font-medium text-ink-muted">
-                Nombre del tipo
-                <input
-                  className="field mt-1"
-                  value={item.label}
-                  onChange={(event) => update(item.id, { label: event.target.value })}
-                />
-              </label>
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  className="btn-ghost px-3"
-                  disabled={index === 0}
-                  onClick={() => move(item.id, -1)}
-                >
-                  Subir
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost px-3"
-                  disabled={index === draft.length - 1}
-                  onClick={() => move(item.id, 1)}
-                >
-                  Bajar
-                </button>
-                <button type="button" className="btn-ghost px-3 text-sold" onClick={() => removeTemplate(item.id)}>
-                  Quitar
-                </button>
-              </div>
+      <div className="mt-4 grid gap-2">
+        {sortedNotifyTemplates(draft).map((item, index) => {
+          const open = openId === item.id;
+          return (
+            <div key={item.id} className="rounded-2xl border border-slate-200">
+              <button
+                type="button"
+                className="flex min-h-12 w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                onClick={() => setOpenId(open ? null : item.id)}
+              >
+                <span className="min-w-0 truncate font-semibold">
+                  {item.order}. {item.label || "Sin nombre"}
+                </span>
+                <span className="shrink-0 text-sm text-ink-muted">{open ? "Ocultar" : "Editar"}</span>
+              </button>
+              {open ? (
+                <div className="border-t border-slate-200 p-3">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="min-w-[4.5rem] text-sm font-medium text-ink-muted">
+                      Orden
+                      <input
+                        className="field mt-1"
+                        type="number"
+                        min={1}
+                        value={item.order}
+                        onChange={(event) => update(item.id, { order: Number(event.target.value) || 1 })}
+                      />
+                    </label>
+                    <label className="min-w-0 flex-1 text-sm font-medium text-ink-muted">
+                      Nombre del tipo
+                      <input
+                        className="field mt-1"
+                        value={item.label}
+                        onChange={(event) => update(item.id, { label: event.target.value })}
+                      />
+                    </label>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        className="btn-ghost px-3"
+                        disabled={index === 0}
+                        onClick={() => move(item.id, -1)}
+                      >
+                        Subir
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost px-3"
+                        disabled={index === draft.length - 1}
+                        onClick={() => move(item.id, 1)}
+                      >
+                        Bajar
+                      </button>
+                      <button type="button" className="btn-ghost px-3 text-sold" onClick={() => removeTemplate(item.id)}>
+                        Quitar
+                      </button>
+                    </div>
+                  </div>
+                  <label className="mt-2 block text-sm font-medium text-ink-muted">
+                    Mensaje
+                    <textarea
+                      className="mt-1 min-h-36 w-full rounded-xl border border-slate-200 p-3 text-sm leading-relaxed"
+                      value={item.body}
+                      onChange={(event) => update(item.id, { body: event.target.value })}
+                    />
+                  </label>
+                </div>
+              ) : null}
             </div>
-            <label className="mt-2 block text-sm font-medium text-ink-muted">
-              Mensaje
-              <textarea
-                className="mt-1 min-h-36 w-full rounded-xl border border-slate-200 p-3 text-sm leading-relaxed"
-                value={item.body}
-                onChange={(event) => update(item.id, { body: event.target.value })}
-              />
-            </label>
-          </div>
-        ))}
+          );
+        })}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         <button type="button" className="btn-ghost" onClick={addTemplate}>
