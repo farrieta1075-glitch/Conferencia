@@ -34,7 +34,15 @@ export async function GET(request: Request) {
     };
     if (hydrate) {
       try {
-        payload.state = payload.ready ? await loadStateFromSheets(campus) : null;
+        if (payload.ready) {
+          const loaded = await loadStateFromSheets(campus);
+          payload.state = loaded?.state ?? null;
+          if (loaded?.persistPurchases && loaded.state.purchases.length) {
+            await applySheetsDelta({ campus, purchases: loaded.state.purchases });
+          }
+        } else {
+          payload.state = null;
+        }
       } catch (error) {
         payload.state = null;
         payload.hydrateError =

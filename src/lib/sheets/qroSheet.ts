@@ -201,7 +201,8 @@ export async function updateQroSheetPayments(): Promise<QroSheetUpdateSummary> {
     throw new Error("La hoja QRO no tiene Zona, Fila y Asiento");
   }
 
-  const state = await loadStateFromSheets(DEFAULT_CAMPUS);
+  const loaded = await loadStateFromSheets(DEFAULT_CAMPUS);
+  const state = loaded?.state;
   if (!state) throw new Error("No se pudieron leer las compras de QRO");
 
   const qrs: string[][] = [["Pagos", "Titular", "Método", "Fecha 1er pago"]];

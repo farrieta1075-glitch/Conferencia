@@ -1,4 +1,5 @@
 import { AREA_LABELS, AREA_ORDER, DEFAULT_PRICES } from "@/lib/constants";
+import { roundMoney } from "@/lib/format";
 import { syncInstallmentsToPaid } from "@/lib/purchases";
 import { DEFAULT_CAMPUS, dataCampusOf, type DataCampus } from "@/lib/campus";
 import { filterCampusRows } from "@/lib/sheets/campusRows";
@@ -16,6 +17,7 @@ import type {
   Promotion,
   PaymentRecord,
   Purchase,
+  Installment,
   NotifyKind,
   NotifyTemplate,
   ReminderJob,
@@ -163,6 +165,19 @@ function parseNotifyTemplates(rows: string[][]): NotifyTemplate[] {
   return templates.length ? templates : DEFAULT_NOTIFY_TEMPLATES;
 }
 
+function installmentsChanged(before: Installment[], after: Installment[]): boolean {
+  if (before.length !== after.length) return true;
+  return before.some((item, index) => {
+    const next = after[index];
+    if (!next) return true;
+    return (
+      roundMoney(item.amount) !== roundMoney(next.amount) ||
+      Boolean(item.paid) !== Boolean(next.paid) ||
+      roundMoney(item.originalAmount ?? item.amount) !== roundMoney(next.originalAmount ?? next.amount)
+    );
+  });
+}
+
 function buildPurchases(
   sales: string[][],
   tickets: string[][],
@@ -170,12 +185,13 @@ function buildPurchases(
   payments: string[][],
   notifications: string[][],
   campus: DataCampus,
-): Purchase[] {
+): { purchases: Purchase[]; persistPurchases: boolean } {
   const ticketRows = tickets.slice(1).filter((row) => row[0]);
   const installmentRows = installments.slice(1).filter((row) => row[0]);
   const paymentRows = payments.slice(1).filter((row) => row[0]);
   const notifyRows = notifications.slice(1).filter((row) => row[0]);
   const purchases: Purchase[] = [];
+  let persistPurchases = false;
 
   for (const row of sales.slice(1)) {
     const [
@@ -218,60 +234,61 @@ function buildPurchases(
               },
             ]
           : [];
-    purchases.push(
-      syncInstallmentsToPaid({
-        id,
-        createdAt: createdAt || new Date().toISOString(),
-        campus,
-        customer: { email: email || "", phone: phone || "" },
-        paymentMode,
-        paymentMethod,
-        tickets: ticketRows
-          .filter((item) => item[0] === id)
-          .map((item) => ({
-            id: item[1] || `tkt-${id}-${item[2]}`,
-            seatId: item[2],
-            holderName: item[3] || "",
-            price: Number(item[4]) || 0,
-            basePrice: Number(item[4]) || 0,
-            promotionName: item[5] || undefined,
-          })),
-        deposit: paid,
-        total,
-        paid,
-        installments: installmentRows
-          .filter((item) => item[0] === id)
-          .map((item) => ({
-            index: Number(item[1]) || 0,
-            date: item[2],
-            amount: Number(item[3]) || 0,
-            paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
-            originalAmount: Number(item[5]) || Number(item[3]) || 0,
-          })),
-        payments: paymentsForPurchase,
-        cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
-        reminders: notifyRows
-          .filter((item) => item[0] === id)
-          .map((item): ReminderJob => ({
-            id: item[1] || `ntf-${id}-${item[5]}`,
-            channel: item[2] === "email" ? "email" : "whatsapp",
-            kind: parseNotifyKind(item[3]),
-            to: item[4] || "",
-            scheduledFor: item[5] || "",
-            sentAt: item[5] || undefined,
-            message: item[6] || "",
-            status: item[7] === "sent" ? "sent" : "simulated",
-          })),
-      }),
-    );
+    const rawInstallments = installmentRows
+      .filter((item) => item[0] === id)
+      .map((item) => ({
+        index: Number(item[1]) || 0,
+        date: item[2],
+        amount: Number(item[3]) || 0,
+        paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
+        originalAmount: Number(item[5]) || Number(item[3]) || 0,
+      }));
+    const synced = syncInstallmentsToPaid({
+      id,
+      createdAt: createdAt || new Date().toISOString(),
+      campus,
+      customer: { email: email || "", phone: phone || "" },
+      paymentMode,
+      paymentMethod,
+      tickets: ticketRows
+        .filter((item) => item[0] === id)
+        .map((item) => ({
+          id: item[1] || `tkt-${id}-${item[2]}`,
+          seatId: item[2],
+          holderName: item[3] || "",
+          price: Number(item[4]) || 0,
+          basePrice: Number(item[4]) || 0,
+          promotionName: item[5] || undefined,
+        })),
+      deposit: paid,
+      total,
+      paid,
+      installments: rawInstallments,
+      payments: paymentsForPurchase,
+      cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
+      reminders: notifyRows
+        .filter((item) => item[0] === id)
+        .map((item): ReminderJob => ({
+          id: item[1] || `ntf-${id}-${item[5]}`,
+          channel: item[2] === "email" ? "email" : "whatsapp",
+          kind: parseNotifyKind(item[3]),
+          to: item[4] || "",
+          scheduledFor: item[5] || "",
+          sentAt: item[5] || undefined,
+          message: item[6] || "",
+          status: item[7] === "sent" ? "sent" : "simulated",
+        })),
+    });
+    if (installmentsChanged(rawInstallments, synced.installments)) persistPurchases = true;
+    purchases.push(synced);
   }
 
-  return purchases;
+  return { purchases, persistPurchases };
 }
 
 export async function loadStateFromSheets(
   campus: DataCampus = DEFAULT_CAMPUS,
-): Promise<PersistedState | null> {
+): Promise<{ state: PersistedState; persistPurchases: boolean } | null> {
   if (!sheetsConfigured()) return null;
   const spreadsheetId = await getSpreadsheetId();
   if (!spreadsheetId) return null;
@@ -366,32 +383,37 @@ export async function loadStateFromSheets(
       expiresAt: row[5] || new Date().toISOString(),
     }));
 
+  const { purchases, persistPurchases } = buildPurchases(
+    ventasCampus,
+    filterCampusRows(boletos, 6, campus),
+    filterCampusRows(parcialidades, 6, campus),
+    filterCampusRows(pagos, 8, campus),
+    filterCampusRows(notificaciones, 8, campus),
+    campus,
+  );
+
   return {
-    event: {
-      name: eventName || "Evento",
-      datetime: eventDatetime || new Date().toISOString(),
-      logoDataUrl: readLogoDataUrl(logoRows),
+    persistPurchases,
+    state: {
+      event: {
+        name: eventName || "Evento",
+        datetime: eventDatetime || new Date().toISOString(),
+        logoDataUrl: readLogoDataUrl(logoRows),
+      },
+      tabulador: tabulador ?? {
+        venueName: "Auditorio Nacional",
+        venueCity: "Ciudad de México",
+        officialCapacity,
+        version,
+        areas: [],
+      },
+      seatStatus,
+      foreignSeats,
+      prices,
+      promotions,
+      purchases,
+      notifyTemplates: parseNotifyTemplates(plantillasNotif),
     },
-    tabulador: tabulador ?? {
-      venueName: "Auditorio Nacional",
-      venueCity: "Ciudad de México",
-      officialCapacity,
-      version,
-      areas: [],
-    },
-    seatStatus,
-    foreignSeats,
-    prices,
-    promotions,
-    purchases: buildPurchases(
-      ventasCampus,
-      filterCampusRows(boletos, 6, campus),
-      filterCampusRows(parcialidades, 6, campus),
-      filterCampusRows(pagos, 8, campus),
-      filterCampusRows(notificaciones, 8, campus),
-      campus,
-    ),
-    notifyTemplates: parseNotifyTemplates(plantillasNotif),
   };
 }
 
