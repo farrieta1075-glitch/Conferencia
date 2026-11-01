@@ -40,13 +40,46 @@ export function releaseNamelessBlock(purchase: Purchase): Purchase {
   };
 }
 
+function installmentQuotas(purchase: Purchase): number[] {
+  const items = purchase.installments;
+  const total = roundMoney(purchase.total);
+  const quotas = items.map((item) => roundMoney(item.originalAmount ?? item.amount));
+  if (!items.length) return quotas;
+  const sum = roundMoney(quotas.reduce((acc, value) => acc + value, 0));
+  if (Math.abs(sum - total) <= 0.009) return quotas;
+
+  const first = roundMoney(Math.min(quotas[0] ?? 0, total));
+  const restCount = items.length - 1;
+  if (restCount <= 0) return [total];
+
+  let leftover = roundMoney(Math.max(0, total - first));
+  const repaired = [first];
+  const even = roundMoney(leftover / restCount);
+  for (let index = 0; index < restCount; index++) {
+    if (index === restCount - 1) {
+      repaired.push(leftover);
+    } else {
+      repaired.push(even);
+      leftover = roundMoney(leftover - even);
+    }
+  }
+  return repaired;
+}
+
 export function syncInstallmentsToPaid(purchase: Purchase): Purchase {
+  if (!purchase.installments.length) return purchase;
+  const quotas = installmentQuotas(purchase);
   let credit = roundMoney(purchase.paid);
-  const installments = purchase.installments.map((item) => {
-    const quota = item.originalAmount ?? item.amount;
+  const installments = purchase.installments.map((item, index) => {
+    const quota = quotas[index] ?? roundMoney(item.originalAmount ?? item.amount);
     if (credit + 0.009 >= quota) {
       credit = roundMoney(credit - quota);
       return { ...item, originalAmount: quota, amount: quota, paid: true };
+    }
+    if (credit > 0.009) {
+      const leftover = roundMoney(quota - credit);
+      credit = 0;
+      return { ...item, originalAmount: quota, amount: leftover, paid: false };
     }
     return { ...item, originalAmount: quota, amount: quota, paid: false };
   });

@@ -184,6 +184,7 @@ export async function buildPurchase(
         index: index + 1,
         date: item.date,
         amount: item.amount,
+        originalAmount: item.amount,
         paid: index === 0,
       }));
     }
