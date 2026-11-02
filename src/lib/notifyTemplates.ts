@@ -144,6 +144,16 @@ export function fillNotifyKind(
   return template ? fillNotifyTemplate(template.body, vars) : "";
 }
 
+export function notificationCoversInstallmentDate(purchase: Purchase, dueIso: string): boolean {
+  const formatted = formatNotifyInstallmentDate(dueIso);
+  const unpadded = formatted.replace(/^0/, "");
+  const reminders = (purchase.reminders ?? []).filter((item) => item.channel === "whatsapp" && item.message.trim());
+  return reminders.some((item) => {
+    const message = item.message;
+    return message.includes(formatted) || message.includes(unpadded);
+  });
+}
+
 export function canNotifyPhone(phone: string): boolean {
   const trimmed = phone.trim().toLowerCase();
   if (!trimmed || trimmed === NO_PHONE) return false;

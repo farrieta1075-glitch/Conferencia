@@ -7,6 +7,7 @@ import { RoleGate, useCurrentRole } from "@/components/auth/RoleGate";
 import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
 import { formatDate, money } from "@/lib/format";
+import { notificationCoversInstallmentDate } from "@/lib/notifyTemplates";
 import { activePayments, isNamelessBlock, remainingBalance } from "@/lib/purchases";
 import { flattenSeats } from "@/lib/tabulador/generator";
 import { priceForSeat } from "@/lib/pricing";
@@ -267,7 +268,12 @@ export default function DashboardPage() {
                 </summary>
                 <table className="mt-2 w-full text-left text-sm">
                   <tbody>
-                    {items.map((item) => (
+                    {items.map((item) => {
+                      const purchase = state.purchases.find((entry) => entry.id === item.purchaseId);
+                      const notified = purchase
+                        ? notificationCoversInstallmentDate(purchase, item.date)
+                        : false;
+                      return (
                       <tr key={`${item.purchaseId}-${item.index}`} className="border-t border-slate-200">
                         <td className="py-1">{formatDate(item.date)}</td>
                         <td className="font-medium">{money(item.amount)}</td>
@@ -278,17 +284,22 @@ export default function DashboardPage() {
                         </td>
                         {isAdmin ? (
                           <td className="py-1 text-right">
-                            <button
-                              type="button"
-                              className="text-xs font-semibold text-bronze-dark"
-                              onClick={() => setNotify({ purchaseId: item.purchaseId, dueDate: item.date })}
-                            >
-                              Notificar
-                            </button>
+                            {notified ? (
+                              <span className="text-xs font-semibold text-available">Notificado</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="text-xs font-semibold text-bronze-dark"
+                                onClick={() => setNotify({ purchaseId: item.purchaseId, dueDate: item.date })}
+                              >
+                                Notificar
+                              </button>
+                            )}
                           </td>
                         ) : null}
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </details>

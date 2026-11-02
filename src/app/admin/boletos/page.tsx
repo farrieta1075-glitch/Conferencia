@@ -356,10 +356,9 @@ export default function BoletosAdminPage() {
             </RoleGate>
 
             <div className="rounded-2xl bg-surface p-4">
-              <h4 className="font-semibold">Pagos realizados</h4>
-              <p className="text-sm text-ink-muted">
-                Saldo {money(remainingBalance(selected))} de {money(selected.total)}
-              </p>
+              <h4 className="font-semibold">
+                Pagos realizados <span>{money(selected.paid)}</span>
+              </h4>
               {(selected.payments ?? []).length > 0 && (
                 <table className="mt-3 w-full text-sm">
                   <thead>
@@ -389,6 +388,9 @@ export default function BoletosAdminPage() {
                   </tbody>
                 </table>
               )}
+              <p className="mt-3 text-sm text-ink-muted">
+                Saldo {money(remainingBalance(selected))} de {money(selected.total)}
+              </p>
               {selected.installments.length > 0 && (
                 <>
                   <h4 className="mt-4 font-semibold">Plan de parcialidades</h4>
