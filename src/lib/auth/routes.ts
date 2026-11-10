@@ -39,6 +39,7 @@ export function permissionForRequest(
   if (pathname.startsWith("/api/sheets") && verb === "POST") return "sheets:sync";
   if (pathname.startsWith("/api/")) return "maps:read";
 
+  if (pathname.startsWith("/dashboard")) return "dashboard:read";
   if (pathname.startsWith("/admin/usuarios")) return "users:manage";
   if (pathname.startsWith("/admin/boletos")) return "tickets:read";
   if (pathname.startsWith("/admin/precios")) return "prices:edit";
@@ -48,13 +49,17 @@ export function permissionForRequest(
 }
 
 export function navLinksForRole(role: Role | undefined) {
-  return [
+  const links = [
     { href: "/", label: "Venta", permission: "maps:read" as const },
-    { href: "/dashboard", label: "Dashboard", permission: "maps:read" as const },
+    { href: "/dashboard", label: "Dashboard", permission: "dashboard:read" as const },
     { href: "/admin/boletos", label: "Boletos", permission: "tickets:read" as const },
     { href: "/admin/evento", label: "Evento", permission: "event:edit" as const },
     { href: "/admin/asientos", label: "Asientos", permission: "seats:read" as const },
     { href: "/admin/precios", label: "Precios", permission: "prices:edit" as const },
     { href: "/admin/usuarios", label: "Usuarios", permission: "users:manage" as const },
   ].filter((link) => hasPermission(role, link.permission));
+  if (role === "VIEWER") {
+    return links.sort((a, b) => Number(b.href.includes("boletos")) - Number(a.href.includes("boletos")));
+  }
+  return links;
 }

@@ -144,14 +144,24 @@ export function fillNotifyKind(
   return template ? fillNotifyTemplate(template.body, vars) : "";
 }
 
-export function notificationCoversInstallmentDate(purchase: Purchase, dueIso: string): boolean {
+export function lastNotificationForInstallment(purchase: Purchase, dueIso: string) {
   const formatted = formatNotifyInstallmentDate(dueIso);
   const unpadded = formatted.replace(/^0/, "");
   const reminders = (purchase.reminders ?? []).filter((item) => item.channel === "whatsapp" && item.message.trim());
-  return reminders.some((item) => {
+  const matches = reminders.filter((item) => {
     const message = item.message;
     return message.includes(formatted) || message.includes(unpadded);
   });
+  if (!matches.length) return null;
+  return matches.reduce((latest, item) => {
+    const next = Date.parse(item.sentAt || item.scheduledFor || "");
+    const prev = Date.parse(latest.sentAt || latest.scheduledFor || "");
+    return next >= prev ? item : latest;
+  });
+}
+
+export function notificationCoversInstallmentDate(purchase: Purchase, dueIso: string): boolean {
+  return Boolean(lastNotificationForInstallment(purchase, dueIso));
 }
 
 export function canNotifyPhone(phone: string): boolean {

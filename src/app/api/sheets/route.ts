@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { jsonError, requirePermission } from "@/lib/auth/api";
+import { HttpError, jsonError, requirePermission } from "@/lib/auth/api";
+import { auth } from "@/auth";
+import { hasPermission, type Role } from "@/lib/auth/roles";
 import { resolveWorkingCampus } from "@/lib/campus";
 import {
   ensureTabs,
@@ -55,15 +57,33 @@ export async function GET(request: Request) {
   }
 }
 
+function viewerPurchaseDelta(delta?: SheetsDelta) {
+  if (!delta) return false;
+  const keys = Object.entries(delta)
+    .filter(([, value]) => value !== undefined && value !== false)
+    .map(([key]) => key)
+    .filter((key) => key !== "campus");
+  return keys.length > 0 && keys.every((key) => key === "purchases" || key === "seatPatch");
+}
+
 export async function POST(request: Request) {
   try {
-    const { session } = await requirePermission("sheets:sync");
     const body = (await request.json()) as {
       spreadsheetId?: string;
       state?: PersistedState;
       delta?: SheetsDelta;
       writeTabulador?: boolean;
     };
+    let session;
+    const live = await auth();
+    const role = live?.user?.role as Role | undefined;
+    if (hasPermission(role, "sheets:sync")) {
+      ({ session } = await requirePermission("sheets:sync"));
+    } else if (role === "VIEWER" && viewerPurchaseDelta(body.delta) && !body.state && !body.spreadsheetId) {
+      ({ session } = await requirePermission("tickets:read"));
+    } else {
+      throw new HttpError(403, "Forbidden: no tienes permisos suficientes");
+    }
     const campus = resolveWorkingCampus(session.user.campus, body.delta?.campus);
     if (body.spreadsheetId?.trim() && !process.env.GOOGLE_SHEETS_ID?.trim()) {
       await saveSpreadsheetId(body.spreadsheetId.trim());

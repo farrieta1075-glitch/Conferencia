@@ -12,6 +12,7 @@ import {
 } from "react";
 import { useSession } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
+import { isMexicoToday } from "@/lib/auth/schedule";
 import { persistsToSheets } from "@/lib/auth/roles";
 import { useCampus } from "@/context/CampusContext";
 import { AREA_ORDER, DEFAULT_PRICES, NO_EMAIL, NO_PHONE, STORAGE_KEY } from "@/lib/constants";
@@ -443,9 +444,11 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   const syncTimer = useRef<number>(0);
   const stateRef = useRef(state);
   const canSyncRef = useRef(false);
+  const roleRef = useRef(session?.user?.role);
   const canSync = persistsToSheets(session?.user?.role);
   stateRef.current = state;
   canSyncRef.current = canSync;
+  roleRef.current = session?.user?.role;
 
   function flushSheets() {
     if (!sheetsReady.current || !canSyncRef.current) return;
@@ -694,29 +697,56 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         });
       },
       applyPayment: async (id, amount, settleAll) => {
-        dispatch({ type: "applyPayment", id, amount, settleAll });
         const current = state.purchases.find((item) => item.id === id);
+        if (!current) throw new Error("Compra no encontrada");
+        const updated = applyPurchasePayment(current, amount, settleAll);
         const seatPatch: Record<string, SeatStatus> = {};
-        if (current) {
-          const updated = applyPurchasePayment(current, amount, settleAll);
-          const status = purchaseSeatStatus(updated);
-          for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
-        }
-        queueSheets({ purchases: true, seatPatch });
+        const status = purchaseSeatStatus(updated);
+        for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
+        const purchases = state.purchases.map((item) => (item.id === id ? updated : item));
         await apiFetch(`/api/purchases/${encodeURIComponent(id)}/pay`, {
           method: "POST",
           body: JSON.stringify({ amount, settleAll }),
         });
+        if (roleRef.current === "VIEWER") {
+          await apiFetch("/api/sheets", {
+            method: "POST",
+            body: JSON.stringify({
+              delta: { campus: campusRef.current, purchases, seatPatch },
+            }),
+          });
+        }
+        dispatch({ type: "applyPayment", id, amount, settleAll });
+        if (canSyncRef.current) {
+          queueSheets({ purchases: true, seatPatch });
+        }
       },
       voidPayment: async (id, paymentId, reason) => {
         const current = state.purchases.find((item) => item.id === id);
         if (!current) throw new Error("Compra no encontrada");
+        const target = (current.payments ?? []).find((item) => item.id === paymentId && !item.cancelled);
+        if (!target) throw new Error("Pago no encontrado");
+        const role = roleRef.current;
+        if (role === "VIEWER" && !isMexicoToday(target.date)) {
+          throw new Error("Solo puedes cancelar pagos del día de hoy");
+        }
         const updated = voidPurchasePayment(current, paymentId, reason);
-        dispatch({ type: "voidPayment", id, paymentId, reason });
         const seatPatch: Record<string, SeatStatus> = {};
         const status = purchaseSeatStatus(updated);
         for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
-        queueSheets({ purchases: true, seatPatch });
+        const purchases = state.purchases.map((item) => (item.id === id ? updated : item));
+        if (role === "VIEWER") {
+          await apiFetch("/api/sheets", {
+            method: "POST",
+            body: JSON.stringify({
+              delta: { campus: campusRef.current, purchases, seatPatch },
+            }),
+          });
+        }
+        dispatch({ type: "voidPayment", id, paymentId, reason });
+        if (canSyncRef.current) {
+          queueSheets({ purchases: true, seatPatch });
+        }
       },
       blockSeats: async (seatIds) => {
         const foreign = new Set(state.foreignSeats ?? []);

@@ -39,6 +39,12 @@ function pad(value: string) {
   return value.padStart(2, "0");
 }
 
+export function isMexicoToday(iso: string, now = new Date()) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return false;
+  return mexicoParts(date).date === mexicoParts(now).date;
+}
+
 export function mexicoParts(at = new Date()) {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat("en-US", {

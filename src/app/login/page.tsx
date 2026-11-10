@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { signIn } from "next-auth/react";
+import { getSession, signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
@@ -39,7 +39,12 @@ function LoginForm() {
       setBusy(false);
       return;
     }
-    window.location.href = callbackUrl;
+    const session = await getSession();
+    const role = session?.user?.role;
+    const blocked =
+      callbackUrl.startsWith("/dashboard") || callbackUrl.startsWith("/admin/asientos");
+    window.location.href =
+      role === "VIEWER" && (callbackUrl === "/" || blocked) ? "/admin/boletos" : callbackUrl;
   }
 
   return (

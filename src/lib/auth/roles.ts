@@ -3,6 +3,7 @@ export type Role = (typeof ROLES)[number];
 
 export const PERMISSIONS = [
   "maps:read",
+  "dashboard:read",
   "seats:read",
   "seats:edit",
   "tabulador:import",
@@ -21,6 +22,7 @@ export type Permission = (typeof PERMISSIONS)[number];
 
 const EDITOR_PERMISSIONS = [
   "maps:read",
+  "dashboard:read",
   "seats:read",
   "seats:edit",
   "tabulador:import",
@@ -34,6 +36,7 @@ const EDITOR_PERMISSIONS = [
 
 const LIVE_EDITOR_PERMISSIONS = [
   "maps:read",
+  "dashboard:read",
   "sales:create",
   "tickets:read",
   "tickets:edit",
@@ -41,7 +44,7 @@ const LIVE_EDITOR_PERMISSIONS = [
 ] as const;
 
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  VIEWER: ["maps:read", "seats:read"],
+  VIEWER: ["maps:read", "tickets:read", "payments:complete"],
   PRACTICE: EDITOR_PERMISSIONS,
   EDITOR: [...LIVE_EDITOR_PERMISSIONS, "sheets:sync"],
   ADMIN: PERMISSIONS,
