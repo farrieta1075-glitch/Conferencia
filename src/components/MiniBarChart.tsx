@@ -48,15 +48,18 @@ export function MiniBarChart({
 }) {
   const totals = points.map((point) => series.reduce((sum, item) => sum + (point.values[item.key] ?? 0), 0));
   const max = Math.max(1, ...totals);
+  const rotateLabels = format === "money";
   const barW = stacked ? (format === "money" ? 42 : 36) : Math.max(8, 140 / Math.max(points.length, 1));
-  const groupW = stacked ? (format === "money" ? barW + 36 : barW + 28) : barW * series.length + 8;
+  const groupW = stacked ? (format === "money" ? barW + 40 : barW + 28) : barW * series.length + 8;
   const width = Math.max(180, points.length * groupW + 16);
   const topPad = format === "money" ? 26 : 20;
-  const bottomPad = 28;
+  const bottomPad = rotateLabels ? 58 : 36;
   const usable = height - topPad - bottomPad;
+  const axisY = height - bottomPad;
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full overflow-visible">
+      <line x1="4" y1={axisY} x2={width - 4} y2={axisY} stroke="#CBD5E1" strokeWidth="1" />
       {points.map((point, index) => {
         const groupX = 10 + index * groupW;
         const id = point.id ?? point.label;
@@ -107,11 +110,16 @@ export function MiniBarChart({
             )}
             <text
               x={groupX + barW / 2}
-              y={height - 8}
-              textAnchor="middle"
+              y={axisY + (rotateLabels ? 12 : 14)}
+              textAnchor={rotateLabels ? "end" : "middle"}
               fontSize={8}
               fill="#334155"
               fontWeight={selected ? 700 : 500}
+              transform={
+                rotateLabels
+                  ? `rotate(-42 ${groupX + barW / 2} ${axisY + 12})`
+                  : undefined
+              }
             >
               {point.label}
             </text>
@@ -155,7 +163,7 @@ function StackedBar({
   let y = bottom;
   const totalH = (total / max) * usable;
   const totalLabel = formatBarValue(total, format);
-  const totalY = Math.max(topPad - 4, bottom - totalH - 4);
+  const totalY = Math.max(topPad - 2, Math.min(bottom - totalH - 6, bottom - 12));
 
   return (
     <>

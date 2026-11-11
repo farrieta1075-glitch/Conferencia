@@ -103,6 +103,21 @@ export function mexicoDayStamp(iso: string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export function mexicoWeekdayIndex(iso: string): number {
+  const raw = mexicoDateParts(iso)?.weekday ?? "";
+  const weekday = raw.normalize("NFD").replace(/\p{M}/gu, "");
+  const index: Record<string, number> = {
+    dom: 0,
+    lun: 1,
+    mar: 2,
+    mie: 3,
+    jue: 4,
+    vie: 5,
+    sab: 6,
+  };
+  return index[weekday] ?? 0;
+}
+
 export function formatLiveClock(date: Date): string {
   return new Intl.DateTimeFormat("es-MX", {
     weekday: "short",

@@ -7,7 +7,7 @@ import { RoleGate, useCurrentRole } from "@/components/auth/RoleGate";
 import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
 import { CardIcon, CashIcon } from "@/components/PaymentMethodIcons";
-import { formatDayMonth, formatWeekdayDay, mexicoMonthKey, money } from "@/lib/format";
+import { formatDayMonth, formatWeekdayDay, mexicoDayStamp, mexicoMonthKey, money } from "@/lib/format";
 import { notificationCoversInstallmentDate } from "@/lib/notifyTemplates";
 import {
   activePayments,
@@ -161,7 +161,7 @@ export default function DashboardPage() {
     for (const purchase of livePurchases) {
       if (isNamelessBlock(purchase)) {
         const seatKind = remainingBalance(purchase) <= 0.009 ? "sold" : "held";
-        const seatDay = purchase.createdAt.slice(0, 10);
+        const seatDay = mexicoDayStamp(purchase.createdAt);
         const seatWeek = weekStart(purchase.createdAt);
         const seatCount = purchase.tickets.length;
         const weekRow = seatsWeek.get(seatWeek) ?? { sold: 0, held: 0 };
@@ -173,7 +173,7 @@ export default function DashboardPage() {
         continue;
       }
       for (const payment of activePayments(purchase)) {
-        const day = payment.date.slice(0, 10);
+        const day = mexicoDayStamp(payment.date);
         const key = weekStart(payment.date);
         const methodRow = methods.get(key) ?? { card: 0, cash: 0, other: 0, pending: 0 };
         methodRow[payment.method] += payment.amount;
@@ -183,7 +183,7 @@ export default function DashboardPage() {
         methodsByDay.set(day, methodDay);
       }
       for (const item of purchase.installments.filter((entry) => !entry.paid)) {
-        const day = item.date.slice(0, 10);
+        const day = mexicoDayStamp(item.date);
         const week = weekStart(item.date);
         const methodRow = methods.get(week) ?? { card: 0, cash: 0, other: 0, pending: 0 };
         methodRow.pending += item.amount;
@@ -193,7 +193,7 @@ export default function DashboardPage() {
         methodsByDay.set(day, methodDay);
       }
       const seatKind = remainingBalance(purchase) <= 0.009 ? "sold" : "held";
-      const seatDay = purchase.createdAt.slice(0, 10);
+      const seatDay = mexicoDayStamp(purchase.createdAt);
       const seatWeek = weekStart(purchase.createdAt);
       const seatCount = purchase.tickets.length;
       const weekRow = seatsWeek.get(seatWeek) ?? { sold: 0, held: 0 };
@@ -533,7 +533,7 @@ export default function DashboardPage() {
               />
             </div>
             {expandedWeek ? (
-              <div className="mt-6 h-56">
+              <div className="mt-6 h-72">
                 <p className="mb-2 text-sm font-semibold">{weekLabel(expandedWeek)} por día</p>
                 <MiniBarChart
                   stacked
@@ -555,7 +555,7 @@ export default function DashboardPage() {
                           };
                     return { id: day, label: dayLabel(day), values };
                   })}
-                  height={210}
+                  height={260}
                 />
               </div>
             ) : (
