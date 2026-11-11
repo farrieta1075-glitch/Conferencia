@@ -1,9 +1,11 @@
 export function weekStart(iso: string): string {
-  const date = new Date(iso);
-  const day = (date.getDay() + 6) % 7;
+  const date = iso.length <= 10 ? new Date(`${iso}T12:00:00`) : new Date(iso);
   date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() - day);
-  return date.toISOString().slice(0, 10);
+  date.setDate(date.getDate() - date.getDay());
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function addDays(isoDay: string, days: number): string {
@@ -13,14 +15,14 @@ export function addDays(isoDay: string, days: number): string {
 }
 
 export function isoWeekNumber(weekStartIso: string): number {
-  const date = new Date(`${weekStartIso}T12:00:00`);
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
-  const week1 = new Date(date.getFullYear(), 0, 4);
+  const thursday = new Date(`${weekStartIso}T12:00:00`);
+  thursday.setDate(thursday.getDate() + 4);
+  thursday.setHours(0, 0, 0, 0);
+  const week1 = new Date(thursday.getFullYear(), 0, 4);
   return (
     1 +
     Math.round(
-      ((date.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7,
+      ((thursday.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7,
     )
   );
 }

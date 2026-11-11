@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { CardIcon, CashIcon } from "@/components/PaymentMethodIcons";
 import { AREA_LABELS, NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import { useEventStore } from "@/context/EventStore";
 import { formatDate, formatDateTime, money, parseSeatId } from "@/lib/format";
@@ -209,8 +210,15 @@ export function NotifyPurchaseModal({
                 {activePayments(purchase).length ? (
                   activePayments(purchase).map((item) => (
                     <li key={item.id} className="border-t border-slate-100 py-1">
-                      {formatDate(item.date)} · {money(item.amount)} ·{" "}
-                      {item.method === "cash" ? "Efectivo" : item.method === "other" ? "Otro" : "Tarjeta"}
+                      <span className="inline-flex items-center gap-1.5">
+                        {item.method === "cash" ? (
+                          <CashIcon className="h-4 w-4 shrink-0" />
+                        ) : item.method === "other" ? null : (
+                          <CardIcon className="h-4 w-4 shrink-0" />
+                        )}
+                        {formatDate(item.date)} · {money(item.amount)} ·{" "}
+                        {item.method === "cash" ? "Efectivo" : item.method === "other" ? "Otro" : "Tarjeta"}
+                      </span>
                     </li>
                   ))
                 ) : (

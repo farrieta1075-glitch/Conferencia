@@ -74,7 +74,7 @@ type Action =
   | { type: "removePromotion"; id: string }
   | { type: "buy"; purchase: Purchase }
   | { type: "updatePurchase"; id: string; patch: PurchasePatch }
-  | { type: "applyPayment"; id: string; amount: number; settleAll?: boolean }
+  | { type: "applyPayment"; id: string; amount: number; settleAll?: boolean; method?: Purchase["paymentMethod"] }
   | { type: "voidPayment"; id: string; paymentId: string; reason: string }
   | { type: "releaseBlock"; id: string }
   | { type: "setSeatStatus"; seatStatus: Record<string, SeatStatus> }
@@ -282,7 +282,7 @@ function reducer(state: PersistedState, action: Action): PersistedState {
     case "applyPayment": {
       const current = state.purchases.find((item) => item.id === action.id);
       if (!current) return state;
-      const updated = applyPurchasePayment(current, action.amount, action.settleAll);
+      const updated = applyPurchasePayment(current, action.amount, action.settleAll, action.method);
       const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
       return applySeatStatuses({ ...state, purchases }, updated);
     }
@@ -418,7 +418,12 @@ interface StoreValue {
   removePromotion: (id: string) => Promise<void>;
   buy: (payload: BuyPayload) => Promise<Purchase>;
   updatePurchase: (id: string, patch: PurchasePatch) => Promise<void>;
-  applyPayment: (id: string, amount: number, settleAll?: boolean) => Promise<void>;
+  applyPayment: (
+    id: string,
+    amount: number,
+    settleAll?: boolean,
+    method?: Purchase["paymentMethod"],
+  ) => Promise<void>;
   voidPayment: (id: string, paymentId: string, reason: string) => Promise<void>;
   blockSeats: (seatIds: string[]) => Promise<Purchase>;
   releaseBlock: (id: string) => Promise<void>;
@@ -696,17 +701,17 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify(patch),
         });
       },
-      applyPayment: async (id, amount, settleAll) => {
+      applyPayment: async (id, amount, settleAll, method) => {
         const current = state.purchases.find((item) => item.id === id);
         if (!current) throw new Error("Compra no encontrada");
-        const updated = applyPurchasePayment(current, amount, settleAll);
+        const updated = applyPurchasePayment(current, amount, settleAll, method);
         const seatPatch: Record<string, SeatStatus> = {};
         const status = purchaseSeatStatus(updated);
         for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
         const purchases = state.purchases.map((item) => (item.id === id ? updated : item));
         await apiFetch(`/api/purchases/${encodeURIComponent(id)}/pay`, {
           method: "POST",
-          body: JSON.stringify({ amount, settleAll }),
+          body: JSON.stringify({ amount, settleAll, method }),
         });
         if (roleRef.current === "VIEWER") {
           await apiFetch("/api/sheets", {
@@ -716,7 +721,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
             }),
           });
         }
-        dispatch({ type: "applyPayment", id, amount, settleAll });
+        dispatch({ type: "applyPayment", id, amount, settleAll, method });
         if (canSyncRef.current) {
           queueSheets({ purchases: true, seatPatch });
         }

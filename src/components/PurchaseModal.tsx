@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CardIcon, CashIcon } from "@/components/PaymentMethodIcons";
 import { useEventStore } from "@/context/EventStore";
 import { formatDate, money } from "@/lib/format";
 import { buildInstallmentPlans } from "@/lib/installments";
@@ -254,7 +255,10 @@ export function PurchaseModal({ open, seats, onClose, onCompleted }: PurchaseMod
                   className={paymentMethod === method ? "btn-secondary flex-1" : "btn-ghost flex-1"}
                   onClick={() => setPaymentMethod(method)}
                 >
-                  {method === "card" ? "Tarjeta" : "Efectivo"}
+                  <span className="inline-flex items-center justify-center gap-1.5">
+                    {method === "card" ? <CardIcon className="h-4 w-4" /> : <CashIcon className="h-4 w-4" />}
+                    {method === "card" ? "Tarjeta" : "Efectivo"}
+                  </span>
                 </button>
               ))}
             </div>

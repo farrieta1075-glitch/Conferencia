@@ -1,5 +1,5 @@
 import { roundMoney } from "@/lib/format";
-import type { PaymentRecord, Purchase, ReminderJob, SeatStatus } from "@/lib/types";
+import type { PaymentMethod, PaymentRecord, Purchase, ReminderJob, SeatStatus } from "@/lib/types";
 
 export interface PurchasePatch {
   phone?: string;
@@ -144,10 +144,63 @@ export function applyPurchasePatch(purchase: Purchase, patch: PurchasePatch): Pu
   };
 }
 
+export interface InstallmentPaymentSlice {
+  amount: number;
+  method: PaymentMethod;
+  date: string;
+}
+
+export interface InstallmentCoverage {
+  expected: number;
+  received: number;
+  slices: InstallmentPaymentSlice[];
+  installment: Purchase["installments"][number];
+}
+
+export function installmentCoverages(
+  purchase: Purchase,
+  options?: { onlyParcialidades?: boolean },
+): InstallmentCoverage[] {
+  const pool = activePayments(purchase)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+    .map((item) => ({ ...item, left: item.amount }));
+  let index = 0;
+  const rows: InstallmentCoverage[] = [];
+  purchase.installments.forEach((installment, installmentIndex) => {
+    const expected = roundMoney(installment.originalAmount ?? installment.amount);
+    let need = expected;
+    const slices: InstallmentPaymentSlice[] = [];
+    let lastUsedId = "";
+    while (need > 0.009 && index < pool.length) {
+      const payment = pool[index];
+      const take = roundMoney(Math.min(need, payment.left));
+      if (take > 0.009) {
+        slices.push({ amount: take, method: payment.method, date: payment.date });
+        need = roundMoney(need - take);
+        payment.left = roundMoney(payment.left - take);
+        lastUsedId = payment.id;
+      }
+      if (payment.left <= 0.009) index += 1;
+    }
+    if (options?.onlyParcialidades && installmentIndex === 0) {
+      const leftover = index < pool.length ? pool[index] : null;
+      if (leftover && leftover.left > 0.009 && leftover.id === lastUsedId) {
+        leftover.left = 0;
+        index += 1;
+      }
+      return;
+    }
+    rows.push({ installment, expected, received: roundMoney(expected - need), slices });
+  });
+  return rows;
+}
+
 export function applyPurchasePayment(
   purchase: Purchase,
   amount: number,
   settleAll = false,
+  method?: PaymentMethod,
 ): Purchase {
   const remaining = remainingBalance(purchase);
   if (remaining <= 0) return purchase;
@@ -160,7 +213,7 @@ export function applyPurchasePayment(
     id: `pay-${Date.now()}`,
     date: new Date().toISOString(),
     amount: add,
-    method: purchase.paymentMethod,
+    method: method ?? purchase.paymentMethod,
   };
   return syncInstallmentsToPaid({
     ...purchase,

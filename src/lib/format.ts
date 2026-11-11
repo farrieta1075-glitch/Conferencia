@@ -56,6 +56,53 @@ export function formatNotifyBadgeDate(iso: string): string {
   return `${day}${month}`;
 }
 
+export function formatDayMonth(iso: string): string {
+  const parts = mexicoDateParts(iso);
+  if (!parts) return iso;
+  const month = NOTIFY_MONTHS[Number(parts.month) - 1] ?? "";
+  return `${parts.day}${month}`;
+}
+
+function mexicoDateParts(iso: string): { weekday: string; day: string; month: string; year: string } | null {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(iso.slice(0, 10)) && !iso.includes("T");
+  const date = dateOnly ? new Date(`${iso.slice(0, 10)}T12:00:00-06:00`) : new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("es-MX", {
+    timeZone: "America/Mexico_City",
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const weekday = (parts.find((part) => part.type === "weekday")?.value ?? "")
+    .replace(/\.$/, "")
+    .toLowerCase();
+  return {
+    weekday,
+    day: parts.find((part) => part.type === "day")?.value ?? "",
+    month: parts.find((part) => part.type === "month")?.value ?? "",
+    year: parts.find((part) => part.type === "year")?.value ?? "",
+  };
+}
+
+export function formatWeekdayDay(iso: string): string {
+  const parts = mexicoDateParts(iso);
+  if (!parts) return iso;
+  return `${parts.weekday}, ${parts.day}`;
+}
+
+export function mexicoMonthKey(iso: string): string {
+  const parts = mexicoDateParts(iso);
+  if (!parts) return iso.slice(0, 7);
+  return `${parts.year}-${parts.month}`;
+}
+
+export function mexicoDayStamp(iso: string): string {
+  const parts = mexicoDateParts(iso);
+  if (!parts) return iso.slice(0, 10);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
 export function formatLiveClock(date: Date): string {
   return new Intl.DateTimeFormat("es-MX", {
     weekday: "short",

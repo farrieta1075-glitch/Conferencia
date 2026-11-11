@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { CardIcon, CashIcon } from "@/components/PaymentMethodIcons";
 import { PurchaseSeatTour } from "@/components/PurchaseSeatTour";
 import { RoleGate, useCan, useCurrentRole } from "@/components/auth/RoleGate";
 import { useEventStore } from "@/context/EventStore";
@@ -9,7 +10,7 @@ import { isMexicoToday } from "@/lib/auth/schedule";
 import { formatDate, formatNotifyBadgeDate, money, parseSeatId } from "@/lib/format";
 import { lastNotificationForInstallment } from "@/lib/notifyTemplates";
 import { isNamelessBlock, remainingBalance, type PurchasePatch } from "@/lib/purchases";
-import type { PaymentRecord, Purchase } from "@/lib/types";
+import type { PaymentMethod, PaymentRecord, Purchase } from "@/lib/types";
 
 function firstHolder(purchase: Purchase) {
   if (isNamelessBlock(purchase)) return "Bloqueo sin nombre";
@@ -48,6 +49,7 @@ export default function BoletosAdminPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PurchasePatch>({});
   const [amount, setAmount] = useState(0);
+  const [payMethod, setPayMethod] = useState<PaymentMethod>("card");
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [confirmPay, setConfirmPay] = useState<null | { settleAll: boolean }>(null);
@@ -65,6 +67,7 @@ export default function BoletosAdminPage() {
     if (!current) {
       setDraft({});
       setAmount(0);
+      setPayMethod("card");
       setCancelId(null);
       setCancelReason("");
       setConfirmPay(null);
@@ -90,6 +93,7 @@ export default function BoletosAdminPage() {
       })),
     });
     setAmount(0);
+    setPayMethod(current.paymentMethod === "cash" ? "cash" : current.paymentMethod === "other" ? "other" : "card");
     setCancelId(null);
     setCancelReason("");
     setConfirmPay(null);
@@ -147,7 +151,7 @@ export default function BoletosAdminPage() {
     setError("");
     setMessage("");
     try {
-      await applyPayment(selected.id, amount, settleAll);
+      await applyPayment(selected.id, amount, settleAll, payMethod);
       setAmount(0);
       setConfirmPay(null);
       setMessage(settleAll ? "Saldo liquidado. El boleto queda vendido." : "Abono registrado.");
@@ -440,6 +444,19 @@ export default function BoletosAdminPage() {
                     onChange={(event) => setAmount(Number(event.target.value))}
                     placeholder="Abono"
                   />
+                  {(["card", "cash"] as PaymentMethod[]).map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      className={payMethod === method ? "btn-secondary px-3" : "btn-ghost px-3"}
+                      onClick={() => setPayMethod(method)}
+                    >
+                      <span className="inline-flex items-center gap-1.5">
+                        {method === "cash" ? <CashIcon className="h-4 w-4" /> : <CardIcon className="h-4 w-4" />}
+                        {methodLabel(method)}
+                      </span>
+                    </button>
+                  ))}
                   <button type="button" className="btn-secondary" disabled={busy} onClick={() => setConfirmPay({ settleAll: false })}>
                     Registrar abono
                   </button>
@@ -451,8 +468,8 @@ export default function BoletosAdminPage() {
                   <div className="mt-3 rounded-xl bg-white p-3">
                     <p className="text-sm font-medium">
                       {confirmPay.settleAll
-                        ? `¿Liquidar el saldo de ${money(remainingBalance(selected))}?`
-                        : `¿Registrar un abono de ${money(amount)}?`}
+                        ? `¿Liquidar el saldo de ${money(remainingBalance(selected))} con ${methodLabel(payMethod).toLowerCase()}?`
+                        : `¿Registrar un abono de ${money(amount)} con ${methodLabel(payMethod).toLowerCase()}?`}
                     </p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button

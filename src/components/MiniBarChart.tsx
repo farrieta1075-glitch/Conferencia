@@ -12,11 +12,18 @@ export interface BarPoint {
   values: Record<string, number>;
 }
 
-export type BarFormat = "k" | "count";
+export type BarFormat = "k" | "count" | "money";
 
 function formatBarValue(value: number, format: BarFormat): string {
   if (value < 0.05) return "";
   if (format === "count") return String(Math.round(value));
+  if (format === "money") {
+    return new Intl.NumberFormat("es-MX", {
+      style: "currency",
+      currency: "MXN",
+      maximumFractionDigits: 0,
+    }).format(value);
+  }
   return `${(value / 1000).toFixed(1)}K`;
 }
 
@@ -28,6 +35,7 @@ export function MiniBarChart({
   format = "k",
   selectedId,
   onSelect,
+  showSegmentLabels = true,
 }: {
   series: BarSeries[];
   points: BarPoint[];
@@ -36,14 +44,15 @@ export function MiniBarChart({
   format?: BarFormat;
   selectedId?: string | null;
   onSelect?: (id: string) => void;
+  showSegmentLabels?: boolean;
 }) {
   const totals = points.map((point) => series.reduce((sum, item) => sum + (point.values[item.key] ?? 0), 0));
   const max = Math.max(1, ...totals);
-  const barW = stacked ? 36 : Math.max(8, 140 / Math.max(points.length, 1));
-  const groupW = stacked ? barW + 28 : barW * series.length + 8;
+  const barW = stacked ? (format === "money" ? 42 : 36) : Math.max(8, 140 / Math.max(points.length, 1));
+  const groupW = stacked ? (format === "money" ? barW + 36 : barW + 28) : barW * series.length + 8;
   const width = Math.max(180, points.length * groupW + 16);
-  const topPad = 18;
-  const bottomPad = 16;
+  const topPad = format === "money" ? 26 : 20;
+  const bottomPad = 28;
   const usable = height - topPad - bottomPad;
 
   return (
@@ -69,12 +78,15 @@ export function MiniBarChart({
                 barW={barW}
                 height={height}
                 usable={usable}
+                topPad={topPad}
+                bottomPad={bottomPad}
                 max={max}
                 series={series}
                 values={point.values}
                 total={total}
                 selected={selected}
                 format={format}
+                showSegmentLabels={showSegmentLabels}
               />
             ) : (
               series.map((item, sIndex) => {
@@ -95,7 +107,7 @@ export function MiniBarChart({
             )}
             <text
               x={groupX + barW / 2}
-              y={height - 3}
+              y={height - 8}
               textAnchor="middle"
               fontSize={8}
               fill="#334155"
@@ -115,52 +127,67 @@ function StackedBar({
   barW,
   height,
   usable,
+  topPad,
+  bottomPad,
   max,
   series,
   values,
   total,
   selected,
   format,
+  showSegmentLabels,
 }: {
   x: number;
   barW: number;
   height: number;
   usable: number;
+  topPad: number;
+  bottomPad: number;
   max: number;
   series: BarSeries[];
   values: Record<string, number>;
   total: number;
   selected: boolean;
   format: BarFormat;
+  showSegmentLabels: boolean;
 }) {
-  const bottom = height - 16;
+  const bottom = height - bottomPad;
   let y = bottom;
   const totalH = (total / max) * usable;
   const totalLabel = formatBarValue(total, format);
+  const totalY = Math.max(topPad - 4, bottom - totalH - 4);
 
   return (
     <>
       {selected ? (
-        <rect x={x - 4} y={2} width={barW + 22} height={height - 4} fill="#E8C39A" opacity="0.2" rx={4} />
+        <rect
+          x={x - 4}
+          y={2}
+          width={barW + 8}
+          height={height - bottomPad + 6}
+          fill="#E8C39A"
+          opacity="0.2"
+          rx={4}
+        />
       ) : null}
       {series.map((item) => {
         const value = values[item.key] ?? 0;
         const h = (value / max) * usable;
         y -= h;
         const label = formatBarValue(value, format);
-        const fits = h >= 12 && barW >= 28;
+        const fits = showSegmentLabels && h >= 14 && barW >= 28 && format !== "money";
         const midY = y + h / 2 + 3;
         return (
           <g key={item.key}>
             <rect x={x} y={y} width={barW} height={Math.max(h, 0)} fill={item.color} />
-            {label ? (
+            {fits && label ? (
               <text
-                x={fits ? x + barW / 2 : x + barW + 3}
-                y={fits ? midY : Math.max(y + 8, midY)}
-                textAnchor={fits ? "middle" : "start"}
+                x={x + barW / 2}
+                y={midY}
+                textAnchor="middle"
                 fontSize={7}
                 fontWeight={600}
-                fill={fits ? "#FFFFFF" : item.color}
+                fill="#FFFFFF"
               >
                 {label}
               </text>
@@ -171,9 +198,9 @@ function StackedBar({
       {totalLabel ? (
         <text
           x={x + barW / 2}
-          y={Math.max(11, bottom - totalH - 4)}
+          y={totalY}
           textAnchor="middle"
-          fontSize={10}
+          fontSize={format === "money" ? 8 : 10}
           fontWeight={700}
           fill="#0F172A"
         >

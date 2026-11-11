@@ -8,7 +8,11 @@ export async function POST(
   try {
     await requirePermission("payments:complete");
     const { id } = await context.params;
-    const body = (await request.json()) as { amount?: number; settleAll?: boolean };
+    const body = (await request.json()) as {
+      amount?: number;
+      settleAll?: boolean;
+      method?: "card" | "cash" | "other";
+    };
     if (!id) return NextResponse.json({ error: "Falta el folio" }, { status: 400 });
     if (!body.settleAll && !(Number(body.amount) > 0)) {
       return NextResponse.json({ error: "Indica un monto o liquida el saldo" }, { status: 400 });
@@ -18,6 +22,7 @@ export async function POST(
       id,
       amount: Number(body.amount) || 0,
       settleAll: Boolean(body.settleAll),
+      method: body.method,
     });
   } catch (error) {
     return jsonError(error);

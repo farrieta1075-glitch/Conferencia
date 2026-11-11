@@ -6,16 +6,22 @@ import { NotifyPurchaseModal } from "@/components/NotifyPurchaseModal";
 import { RoleGate, useCurrentRole } from "@/components/auth/RoleGate";
 import { useCampus } from "@/context/CampusContext";
 import { useEventStore } from "@/context/EventStore";
-import { formatDate, money } from "@/lib/format";
+import { CardIcon, CashIcon } from "@/components/PaymentMethodIcons";
+import { formatDayMonth, formatWeekdayDay, mexicoMonthKey, money } from "@/lib/format";
 import { notificationCoversInstallmentDate } from "@/lib/notifyTemplates";
-import { activePayments, isNamelessBlock, remainingBalance } from "@/lib/purchases";
+import {
+  activePayments,
+  installmentCoverages,
+  isNamelessBlock,
+  remainingBalance,
+} from "@/lib/purchases";
 import { flattenSeats } from "@/lib/tabulador/generator";
 import { priceForSeat } from "@/lib/pricing";
 import type { ReminderJob } from "@/lib/types";
 import { addDays, dayLabel, enumerateWeeks, weekLabel, weekStart } from "@/lib/weeks";
 
 function monthKey(iso: string) {
-  return iso.slice(0, 7);
+  return mexicoMonthKey(iso);
 }
 
 function monthLabel(key: string) {
@@ -24,12 +30,40 @@ function monthLabel(key: string) {
   return new Intl.DateTimeFormat("es-MX", { month: "long", year: "numeric" }).format(date);
 }
 
+function MethodAmounts({
+  card,
+  cash,
+  other = 0,
+  compact = false,
+}: {
+  card: number;
+  cash: number;
+  other?: number;
+  compact?: boolean;
+}) {
+  const icon = compact ? "h-3 w-3" : "h-4 w-4";
+  return (
+    <span className={`inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 ${compact ? "text-[11px] leading-tight text-ink" : "text-sm font-medium"}`}>
+      <span className="inline-flex items-center gap-1" title="Tarjeta">
+        <CardIcon className={icon} />
+        {money(card)}
+      </span>
+      <span className="inline-flex items-center gap-1" title="Efectivo">
+        <CashIcon className={icon} />
+        {money(cash)}
+      </span>
+      {other > 0.009 ? <span title="Otro">Otro {money(other)}</span> : null}
+    </span>
+  );
+}
+
 export default function DashboardPage() {
   const { state, seatIndex, statusOf, updatePurchase } = useEventStore();
   const { campus } = useCampus();
   const isAdmin = useCurrentRole() === "ADMIN";
   const [open, setOpen] = useState<"methods" | "seats" | null>(null);
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
+  const [methodFocus, setMethodFocus] = useState<string | null>(null);
   const [cobrosOpen, setCobrosOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
   const [notify, setNotify] = useState<{ purchaseId: string; dueDate: string } | null>(null);
@@ -56,6 +90,16 @@ export default function DashboardPage() {
     const livePurchases = state.purchases.filter((purchase) => !purchase.cancelled);
     const salePurchases = livePurchases.filter((purchase) => !isNamelessBlock(purchase));
     const cobrado = salePurchases.reduce((sum, purchase) => sum + purchase.paid, 0);
+    let cobradoCard = 0;
+    let cobradoCash = 0;
+    let cobradoOther = 0;
+    for (const purchase of salePurchases) {
+      for (const payment of activePayments(purchase)) {
+        if (payment.method === "cash") cobradoCash += payment.amount;
+        else if (payment.method === "other") cobradoOther += payment.amount;
+        else cobradoCard += payment.amount;
+      }
+    }
     const pendiente = salePurchases.reduce(
       (sum, purchase) => sum + Math.max(0, purchase.total - purchase.paid),
       0,
@@ -73,28 +117,42 @@ export default function DashboardPage() {
       }
     }
 
-    const upcoming = salePurchases
+    const installmentRows = salePurchases
       .flatMap((purchase) =>
-        purchase.installments
-          .filter((item) => !item.paid)
-          .map((item) => ({
-            ...item,
-            purchaseId: purchase.id,
-            email: purchase.customer.email,
-            phone: purchase.customer.phone,
-            holder: purchase.tickets[0]?.holderName ?? "",
-            method: purchase.paymentMethod,
-          })),
+        installmentCoverages(purchase, { onlyParcialidades: true }).map((coverage) => ({
+          purchaseId: purchase.id,
+          index: coverage.installment.index,
+          date: coverage.installment.date,
+          expected: coverage.expected,
+          received: coverage.received,
+          slices: coverage.slices,
+          phone: purchase.customer.phone,
+          holder: purchase.tickets[0]?.holderName ?? "",
+        })),
       )
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const byMonth = new Map<string, typeof upcoming>();
-    for (const item of upcoming) {
+    const byMonth = new Map<string, typeof installmentRows>();
+    for (const item of installmentRows) {
       const key = monthKey(item.date);
       const list = byMonth.get(key) ?? [];
       list.push(item);
       byMonth.set(key, list);
     }
+
+    const receivedByMonth = new Map<string, { total: number; card: number; cash: number; other: number }>();
+    for (const item of installmentRows) {
+      for (const slice of item.slices) {
+        const key = monthKey(slice.date);
+        const row = receivedByMonth.get(key) ?? { total: 0, card: 0, cash: 0, other: 0 };
+        row.total += slice.amount;
+        if (slice.method === "cash") row.cash += slice.amount;
+        else if (slice.method === "other") row.other += slice.amount;
+        else row.card += slice.amount;
+        receivedByMonth.set(key, row);
+      }
+    }
+    const cobroMonths = [...new Set([...byMonth.keys(), ...receivedByMonth.keys()])].sort();
 
     const methods = new Map<string, { card: number; cash: number; other: number; pending: number }>();
     const seatsWeek = new Map<string, { sold: number; held: number }>();
@@ -118,10 +176,10 @@ export default function DashboardPage() {
         const day = payment.date.slice(0, 10);
         const key = weekStart(payment.date);
         const methodRow = methods.get(key) ?? { card: 0, cash: 0, other: 0, pending: 0 };
-        methodRow[purchase.paymentMethod] += payment.amount;
+        methodRow[payment.method] += payment.amount;
         methods.set(key, methodRow);
         const methodDay = methodsByDay.get(day) ?? { card: 0, cash: 0, other: 0, pending: 0 };
-        methodDay[purchase.paymentMethod] += payment.amount;
+        methodDay[payment.method] += payment.amount;
         methodsByDay.set(day, methodDay);
       }
       for (const item of purchase.installments.filter((entry) => !entry.paid)) {
@@ -175,9 +233,14 @@ export default function DashboardPage() {
     return {
       counts,
       cobrado,
+      cobradoCard,
+      cobradoCash,
+      cobradoOther,
       pendiente,
       byPromo,
       byMonth,
+      receivedByMonth,
+      cobroMonths,
       methodPoints,
       seatPoints,
       methodsByDay,
@@ -196,6 +259,13 @@ export default function DashboardPage() {
     { key: "other", label: "Otro", color: "#64748B" },
     { key: "pending", label: "Pendiente", color: "#DC2626" },
   ];
+  const visibleMethodSeries = methodFocus
+    ? methodSeries.filter((item) => item.key === methodFocus)
+    : methodSeries;
+
+  function toggleMethodFocus(key: string) {
+    setMethodFocus((current) => (current === key ? null : key));
+  }
   const seatSeries: BarSeries[] = [
     { key: "sold", label: "Vendidos", color: "#1C2541" },
     { key: "held", label: "Apartados", color: "#9A6B43" },
@@ -218,6 +288,14 @@ export default function DashboardPage() {
           <p className="text-sm text-ink-muted">A la fecha</p>
           <p className="font-display text-3xl">{metrics.committedSeats} asientos</p>
           <p className="text-sm text-available">Recibido {money(metrics.cobrado)}</p>
+          <div className="mt-0.5 text-ink-muted">
+            <MethodAmounts
+              compact
+              card={metrics.cobradoCard}
+              cash={metrics.cobradoCash}
+              other={metrics.cobradoOther}
+            />
+          </div>
           <p className="text-sm text-held">Pendiente {money(metrics.pendiente)}</p>
         </article>
       </section>
@@ -231,8 +309,27 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="mt-2 h-40 overflow-x-auto">
-            <MiniBarChart stacked series={methodSeries} points={metrics.methodPoints} height={150} />
+            <MiniBarChart stacked series={visibleMethodSeries} points={metrics.methodPoints} height={150} />
           </div>
+          <ul className="mt-2 flex flex-wrap gap-2 text-xs">
+            {methodSeries.map((item) => {
+              const active = !methodFocus || methodFocus === item.key;
+              return (
+                <li key={item.key}>
+                  <button
+                    type="button"
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-1 ${
+                      active ? "bg-surface font-semibold text-ink" : "text-ink-muted opacity-50"
+                    }`}
+                    onClick={() => toggleMethodFocus(item.key)}
+                  >
+                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: item.color }} />
+                    {item.label}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </article>
         <article className="card p-4">
           <div className="flex items-center justify-between gap-2">
@@ -261,22 +358,78 @@ export default function DashboardPage() {
         </button>
         {cobrosOpen ? (
           <div className="mt-3 space-y-3">
-            {[...metrics.byMonth.entries()].map(([month, items]) => (
+            {metrics.cobroMonths.map((month) => {
+              const items = metrics.byMonth.get(month) ?? [];
+              const expected = items.reduce((sum, item) => sum + item.expected, 0);
+              const collected = metrics.receivedByMonth.get(month) ?? {
+                total: 0,
+                card: 0,
+                cash: 0,
+                other: 0,
+              };
+              const received = collected.total;
+              const receivedCard = collected.card;
+              const receivedCash = collected.cash;
+              const receivedOther = collected.other;
+              const receivedClass =
+                received + 0.009 < expected ? "text-sold" : received > expected + 0.009 ? "text-available" : "text-ink";
+              return (
               <details key={month} className="rounded-2xl bg-surface p-3">
                 <summary className="cursor-pointer font-semibold capitalize">
-                  {monthLabel(month)} · {money(items.reduce((sum, item) => sum + item.amount, 0))}
+                  {monthLabel(month)} · {money(expected)}{" "}
+                  <span className={receivedClass}>{money(received)}</span>
+                  <span className="ml-2 inline-flex align-middle normal-case text-ink-muted">
+                    <MethodAmounts card={receivedCard} cash={receivedCash} other={receivedOther} />
+                  </span>
                 </summary>
                 <table className="mt-2 w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-ink-muted">
+                      <th className="pb-1 font-medium">Fecha</th>
+                      <th className="pb-1 font-medium">Esperado</th>
+                      <th className="pb-1 font-medium">Pago</th>
+                      <th className="pb-1 font-medium">Persona</th>
+                      {isAdmin ? <th className="pb-1 font-medium" /> : null}
+                    </tr>
+                  </thead>
                   <tbody>
                     {items.map((item) => {
                       const purchase = state.purchases.find((entry) => entry.id === item.purchaseId);
                       const notified = purchase
                         ? notificationCoversInstallmentDate(purchase, item.date)
                         : false;
+                      const paySlice = item.slices.at(-1);
+                      const hasPayment = item.received > 0.009 && Boolean(paySlice);
+                      const complete = item.received + 0.009 >= item.expected;
+                      const lastPayMonth = paySlice ? monthKey(paySlice.date) : "";
+                      const paidLate = complete && lastPayMonth > month;
+                      const payDateLabel = [
+                        ...new Set(item.slices.map((slice) => formatDayMonth(slice.date))),
+                      ].join("/");
                       return (
                       <tr key={`${item.purchaseId}-${item.index}`} className="border-t border-slate-200">
-                        <td className="py-1">{formatDate(item.date)}</td>
-                        <td className="font-medium">{money(item.amount)}</td>
+                        <td className="py-1">{formatWeekdayDay(item.date)}</td>
+                        <td className="font-medium">{money(item.expected)}</td>
+                        <td>
+                          {hasPayment && paySlice ? (
+                            <span
+                              className={`inline-flex items-center gap-1.5 ${
+                                !complete ? "text-ink" : paidLate ? "text-sold" : "text-available"
+                              }`}
+                            >
+                              {paySlice.method === "cash" ? (
+                                <CashIcon className="h-4 w-4 shrink-0" />
+                              ) : (
+                                <CardIcon className="h-4 w-4 shrink-0" />
+                              )}
+                              <span>
+                                {money(item.received)} {payDateLabel}
+                              </span>
+                            </span>
+                          ) : (
+                            "Pendiente"
+                          )}
+                        </td>
                         <td>
                           <RoleGate allow="tickets:read" fallback="••••">
                             {item.holder || item.phone}
@@ -286,7 +439,7 @@ export default function DashboardPage() {
                           <td className="py-1 text-right">
                             {notified ? (
                               <span className="text-xs font-semibold text-available">Notificado</span>
-                            ) : (
+                            ) : complete ? null : (
                               <button
                                 type="button"
                                 className="text-xs font-semibold text-bronze-dark"
@@ -303,8 +456,9 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </details>
-            ))}
-            {!metrics.byMonth.size && <p className="text-sm text-ink-muted">Sin cobros programados.</p>}
+              );
+            })}
+            {!metrics.cobroMonths.length && <p className="text-sm text-ink-muted">Sin cobros programados.</p>}
           </div>
         ) : null}
       </section>
@@ -371,7 +525,7 @@ export default function DashboardPage() {
               <MiniBarChart
                 stacked
                 format={open === "seats" ? "count" : "k"}
-                series={open === "methods" ? methodSeries : seatSeries}
+                series={open === "methods" ? visibleMethodSeries : seatSeries}
                 points={open === "methods" ? metrics.methodPoints : metrics.seatPoints}
                 height={240}
                 selectedId={expandedWeek}
@@ -379,12 +533,13 @@ export default function DashboardPage() {
               />
             </div>
             {expandedWeek ? (
-              <div className="mt-4 h-48">
+              <div className="mt-6 h-56">
                 <p className="mb-2 text-sm font-semibold">{weekLabel(expandedWeek)} por día</p>
                 <MiniBarChart
                   stacked
-                  format={open === "seats" ? "count" : "k"}
-                  series={open === "methods" ? methodSeries : seatSeries}
+                  format={open === "seats" ? "count" : "money"}
+                  showSegmentLabels={false}
+                  series={open === "methods" ? visibleMethodSeries : seatSeries}
                   points={metrics.daysOf(expandedWeek).map((day) => {
                     const values: Record<string, number> =
                       open === "methods"
@@ -400,19 +555,37 @@ export default function DashboardPage() {
                           };
                     return { id: day, label: dayLabel(day), values };
                   })}
-                  height={180}
+                  height={210}
                 />
               </div>
             ) : (
               <p className="mt-2 text-sm text-ink-muted">Toca una semana para verla por día.</p>
             )}
-            <ul className="mt-3 flex flex-wrap gap-3 text-sm">
-              {(open === "methods" ? methodSeries : seatSeries).map((item) => (
-                <li key={item.key} className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-sm" style={{ background: item.color }} />
-                  {item.label}
-                </li>
-              ))}
+            <ul className="mt-3 flex flex-wrap gap-2 text-sm">
+              {(open === "methods" ? methodSeries : seatSeries).map((item) => {
+                const active = open !== "methods" || !methodFocus || methodFocus === item.key;
+                return (
+                  <li key={item.key}>
+                    {open === "methods" ? (
+                      <button
+                        type="button"
+                        className={`inline-flex items-center gap-2 rounded-full px-2 py-1 ${
+                          active ? "bg-surface font-semibold" : "opacity-50"
+                        }`}
+                        onClick={() => toggleMethodFocus(item.key)}
+                      >
+                        <span className="h-3 w-3 rounded-sm" style={{ background: item.color }} />
+                        {item.label}
+                      </button>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-sm" style={{ background: item.color }} />
+                        {item.label}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>
