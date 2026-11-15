@@ -1,4 +1,4 @@
-import { roundMoney } from "@/lib/format";
+import { parseSeatId, roundMoney } from "@/lib/format";
 import type { PaymentMethod, PaymentRecord, Purchase, ReminderJob, SeatStatus } from "@/lib/types";
 
 export interface PurchasePatch {
@@ -15,6 +15,38 @@ export function remainingBalance(purchase: Purchase): number {
 export function isNamelessBlock(purchase: Purchase): boolean {
   if (purchase.cancelled) return false;
   return purchase.tickets.every((ticket) => !ticket.holderName.trim());
+}
+
+export function groupContiguousSeats(seatIds: string[]): string[][] {
+  const buckets = new Map<string, { id: string; number: number }[]>();
+  const loose: string[][] = [];
+  for (const id of seatIds) {
+    const parsed = parseSeatId(id);
+    if (!parsed.sectionId || !parsed.rowId || !Number.isFinite(parsed.number)) {
+      loose.push([id]);
+      continue;
+    }
+    const key = `${parsed.sectionId}|${parsed.rowId}`;
+    const list = buckets.get(key) ?? [];
+    list.push({ id, number: parsed.number });
+    buckets.set(key, list);
+  }
+  const groups: string[][] = [];
+  for (const key of [...buckets.keys()].sort()) {
+    const list = (buckets.get(key) ?? []).sort((a, b) => a.number - b.number);
+    let current: string[] = [];
+    let previous = Number.NaN;
+    for (const seat of list) {
+      if (current.length && seat.number !== previous + 1) {
+        groups.push(current);
+        current = [];
+      }
+      current.push(seat.id);
+      previous = seat.number;
+    }
+    if (current.length) groups.push(current);
+  }
+  return [...groups, ...loose];
 }
 
 export function releaseNamelessBlock(purchase: Purchase): Purchase {
@@ -87,7 +119,9 @@ export function syncInstallmentsToPaid(purchase: Purchase): Purchase {
 }
 
 export function findPurchaseBySeat(purchases: Purchase[], seatId: string): Purchase | undefined {
-  return purchases.find((purchase) => purchase.tickets.some((ticket) => ticket.seatId === seatId));
+  return purchases.find(
+    (purchase) => !purchase.cancelled && purchase.tickets.some((ticket) => ticket.seatId === seatId),
+  );
 }
 
 export function activePayments(purchase: Purchase): PaymentRecord[] {

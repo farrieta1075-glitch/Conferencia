@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CardIcon, CashIcon } from "@/components/PaymentMethodIcons";
 import { PurchaseSeatTour } from "@/components/PurchaseSeatTour";
 import { RoleGate, useCan, useCurrentRole } from "@/components/auth/RoleGate";
@@ -9,8 +9,52 @@ import { NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import { isMexicoToday } from "@/lib/auth/schedule";
 import { formatDate, formatNotifyBadgeDate, money, parseSeatId } from "@/lib/format";
 import { lastNotificationForInstallment } from "@/lib/notifyTemplates";
-import { isNamelessBlock, remainingBalance, type PurchasePatch } from "@/lib/purchases";
-import type { PaymentMethod, PaymentRecord, Purchase } from "@/lib/types";
+import { priceForSeat } from "@/lib/pricing";
+import { groupContiguousSeats, isNamelessBlock, remainingBalance, type PurchasePatch } from "@/lib/purchases";
+import type { PaymentMethod, PaymentRecord, Purchase, Promotion, SeatRef } from "@/lib/types";
+
+function syntheticHolds(
+  seatIds: string[],
+  seatIndex: Map<string, SeatRef>,
+  prices: { areaId: SeatRef["areaId"]; basePrice: number }[],
+  promotions: Promotion[],
+): Purchase[] {
+  return groupContiguousSeats(seatIds).map((group) => {
+    const tickets = group.map((seatId) => {
+      const seat = seatIndex.get(seatId);
+      const priced = seat
+        ? priceForSeat(seat, prices, promotions)
+        : { price: 0, basePrice: 0, promotion: undefined };
+      return {
+        id: `hold-tkt-${seatId}`,
+        seatId,
+        holderName: "",
+        price: priced.price,
+        basePrice: priced.basePrice,
+        promotionName: priced.promotion?.name,
+      };
+    });
+    const total = tickets.reduce((sum, ticket) => sum + ticket.price, 0);
+    return {
+      id: `hold-${group[0]}`,
+      createdAt: new Date(0).toISOString(),
+      customer: { phone: NO_PHONE, email: NO_EMAIL },
+      paymentMode: "total",
+      paymentMethod: "cash",
+      tickets,
+      deposit: 0,
+      total,
+      paid: 0,
+      installments: [],
+      reminders: [],
+      payments: [],
+    };
+  });
+}
+
+function isUnlinkedHold(purchase: Purchase) {
+  return purchase.id.startsWith("hold-");
+}
 
 function firstHolder(purchase: Purchase) {
   if (isNamelessBlock(purchase)) return "Bloqueo sin nombre";
@@ -34,7 +78,8 @@ function methodLabel(method: string) {
 }
 
 export default function BoletosAdminPage() {
-  const { state, seatIndex, statusOf, updatePurchase, applyPayment, voidPayment, releaseBlock } = useEventStore();
+  const { state, seatIndex, statusOf, updatePurchase, applyPayment, voidPayment, releaseBlock, releaseHeldSeats, blockSeats } =
+    useEventStore();
   const role = useCurrentRole();
   const isViewer = role === "VIEWER";
   const canVoidBlock = role === "ADMIN";
@@ -60,10 +105,24 @@ export default function BoletosAdminPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const selected = state.purchases.find((item) => item.id === selectedId && !item.cancelled) ?? null;
+  const visiblePurchases = useMemo(() => {
+    const live = state.purchases.filter((purchase) => !purchase.cancelled);
+    const covered = new Set(live.flatMap((purchase) => purchase.tickets.map((ticket) => ticket.seatId)));
+    const foreign = new Set(state.foreignSeats ?? []);
+    const orphanIds = Object.entries(state.seatStatus)
+      .filter(([id, status]) => status === "held" && !covered.has(id) && !foreign.has(id))
+      .map(([id]) => id);
+    const synthetics = syntheticHolds(orphanIds, seatIndex, state.prices, state.promotions);
+    const nameless = live.filter((purchase) => isNamelessBlock(purchase));
+    const named = live.filter((purchase) => !isNamelessBlock(purchase));
+    return [...synthetics, ...nameless, ...named];
+  }, [seatIndex, state.foreignSeats, state.prices, state.promotions, state.purchases, state.seatStatus]);
+  const visibleRef = useRef(visiblePurchases);
+  visibleRef.current = visiblePurchases;
+  const selected = visiblePurchases.find((item) => item.id === selectedId) ?? null;
 
   useEffect(() => {
-    const current = state.purchases.find((item) => item.id === selectedId && !item.cancelled) ?? null;
+    const current = visibleRef.current.find((item) => item.id === selectedId) ?? null;
     if (!current) {
       setDraft({});
       setAmount(0);
@@ -104,10 +163,10 @@ export default function BoletosAdminPage() {
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return state.purchases.filter((purchase) => {
+    return visiblePurchases.filter((purchase) => {
       if (purchase.cancelled) return false;
       const remaining = remainingBalance(purchase);
-      const kind = remaining <= 0 ? "sold" : "held";
+      const kind = isUnlinkedHold(purchase) || remaining > 0 ? "held" : "sold";
       if (filter !== "all" && filter !== kind) return false;
       if (!needle) return true;
       const summary = seatSummary(purchase);
@@ -123,7 +182,14 @@ export default function BoletosAdminPage() {
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [filter, query, state.purchases]);
+  }, [filter, query, visiblePurchases]);
+
+  async function materialize(purchase: Purchase) {
+    if (!isUnlinkedHold(purchase)) return purchase.id;
+    const created = await blockSeats(purchase.tickets.map((ticket) => ticket.seatId));
+    setSelectedId(created.id);
+    return created.id;
+  }
 
   async function saveSelected() {
     if (!selected) return;
@@ -131,7 +197,8 @@ export default function BoletosAdminPage() {
     setError("");
     setMessage("Guardando…");
     try {
-      await updatePurchase(selected.id, {
+      const id = await materialize(selected);
+      await updatePurchase(id, {
         ...draft,
         phone: withPhone ? (draft.phone ?? "").trim() : NO_PHONE,
         email: withEmail ? (draft.email ?? "").trim() : NO_EMAIL,
@@ -151,7 +218,8 @@ export default function BoletosAdminPage() {
     setError("");
     setMessage("");
     try {
-      await applyPayment(selected.id, amount, settleAll, payMethod);
+      const id = await materialize(selected);
+      await applyPayment(id, amount, settleAll, payMethod);
       setAmount(0);
       setConfirmPay(null);
       setMessage(settleAll ? "Saldo liquidado. El boleto queda vendido." : "Abono registrado.");
@@ -211,10 +279,14 @@ export default function BoletosAdminPage() {
                 >
                   <td className="py-2">
                     <div className="font-medium">{firstHolder(purchase)}</div>
-                    <div className="text-xs text-ink-muted">{purchase.customer.phone}</div>
+                    <div className="text-xs text-ink-muted">
+                      {isUnlinkedHold(purchase) ? "Asientos seguidos, sin compra" : purchase.customer.phone}
+                    </div>
                   </td>
                   <td>{summary.zones}</td>
-                  <td className="max-w-48 truncate">{summary.seats}</td>
+                  <td className={isNamelessBlock(purchase) ? "max-w-80 whitespace-normal" : "max-w-48 truncate"}>
+                    {summary.seats}
+                  </td>
                   <td>
                     {isViewer ? (remaining <= 0 ? "Completo" : "Parcial") : money(purchase.paid)}
                   </td>
@@ -405,7 +477,11 @@ export default function BoletosAdminPage() {
                           setError("");
                           setMessage("");
                           try {
-                            await releaseBlock(selected.id);
+                            if (isUnlinkedHold(selected)) {
+                              await releaseHeldSeats(selected.tickets.map((ticket) => ticket.seatId));
+                            } else {
+                              await releaseBlock(selected.id);
+                            }
                             setSelectedId(null);
                             setMessage("Lugares desbloqueados.");
                           } catch (err) {

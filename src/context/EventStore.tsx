@@ -340,6 +340,7 @@ interface PendingSheets {
   prices: boolean;
   promotions: boolean;
   purchases: boolean;
+  purchasesSnapshot?: PersistedState["purchases"];
   tabulador: boolean;
   replaceSeatStatus: boolean;
   seatPatch: Record<string, SeatStatus>;
@@ -351,6 +352,7 @@ function emptyPending(): PendingSheets {
     prices: false,
     promotions: false,
     purchases: false,
+    purchasesSnapshot: undefined,
     tabulador: false,
     replaceSeatStatus: false,
     seatPatch: {},
@@ -366,6 +368,9 @@ function mergePending(update: Partial<PendingSheets>) {
     prices: pendingSheets.prices || Boolean(update.prices),
     promotions: pendingSheets.promotions || Boolean(update.promotions),
     purchases: pendingSheets.purchases || Boolean(update.purchases),
+    purchasesSnapshot: update.purchases
+      ? (update.purchasesSnapshot ?? pendingSheets.purchasesSnapshot)
+      : pendingSheets.purchasesSnapshot,
     tabulador: pendingSheets.tabulador || Boolean(update.tabulador),
     replaceSeatStatus: pendingSheets.replaceSeatStatus || Boolean(update.replaceSeatStatus),
     seatPatch: { ...pendingSheets.seatPatch, ...update.seatPatch },
@@ -427,6 +432,7 @@ interface StoreValue {
   voidPayment: (id: string, paymentId: string, reason: string) => Promise<void>;
   blockSeats: (seatIds: string[]) => Promise<Purchase>;
   releaseBlock: (id: string) => Promise<void>;
+  releaseHeldSeats: (seatIds: string[]) => Promise<void>;
   saveSeatAssignments: (seatStatus: Record<string, SeatStatus>) => Promise<void>;
   resetVenue: () => Promise<void>;
   reloadFromSheets: () => Promise<void>;
@@ -448,6 +454,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   const startedRemote = useRef(false);
   const syncTimer = useRef<number>(0);
   const stateRef = useRef(state);
+  const sessionPurchaseIds = useRef(new Set<string>());
   const canSyncRef = useRef(false);
   const roleRef = useRef(session?.user?.role);
   const canSync = persistsToSheets(session?.user?.role);
@@ -469,7 +476,7 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           version: pending.event ? snapshot.tabulador.version : undefined,
           prices: pending.prices ? snapshot.prices : undefined,
           promotions: pending.promotions ? snapshot.promotions : undefined,
-          purchases: pending.purchases ? snapshot.purchases : undefined,
+          purchases: pending.purchases ? (pending.purchasesSnapshot ?? snapshot.purchases) : undefined,
           tabulador: pending.tabulador ? snapshot.tabulador : undefined,
           writeTabulador: pending.tabulador,
           seatPatch: pending.replaceSeatStatus ? undefined : pending.seatPatch,
@@ -482,7 +489,9 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
 
   function queueSheets(update: Partial<PendingSheets>) {
     if (!canSyncRef.current) return;
-    mergePending(update);
+    mergePending(
+      update.purchases ? { ...update, purchasesSnapshot: stateRef.current.purchases } : update,
+    );
     if (!sheetsReady.current) return;
     window.clearTimeout(syncTimer.current);
     syncTimer.current = window.setTimeout(() => {
@@ -559,20 +568,27 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       pendingSheets = emptyPending();
       sheetsReady.current = true;
-      dispatch({
-        type: "hydrate",
-        state: withCanonicalAreas({
-          ...incoming,
-          event: {
-            ...incoming.event,
-            logoDataUrl: incoming.event.logoDataUrl || stateRef.current.event.logoDataUrl,
-          },
-          tabulador: preferSlottedTabulador(
-            incoming.tabulador,
-            stateRef.current.tabulador,
-          ),
-        }),
+      const kept = stateRef.current.purchases.filter(
+        (purchase) =>
+          sessionPurchaseIds.current.has(purchase.id) &&
+          !incoming.purchases.some((item) => item.id === purchase.id),
+      );
+      let hydrated = withCanonicalAreas({
+        ...incoming,
+        purchases: kept.length ? [...kept, ...incoming.purchases] : incoming.purchases,
+        event: {
+          ...incoming.event,
+          logoDataUrl: incoming.event.logoDataUrl || stateRef.current.event.logoDataUrl,
+        },
+        tabulador: preferSlottedTabulador(
+          incoming.tabulador,
+          stateRef.current.tabulador,
+        ),
       });
+      for (const purchase of kept) hydrated = applySeatStatuses(hydrated, purchase);
+      stateRef.current = hydrated;
+      dispatch({ type: "hydrate", state: hydrated });
+      if (kept.length) queueSheets({ purchases: true });
     }
 
     void hydrateFromSheets()
@@ -685,6 +701,8 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           campus: campusRef.current,
         };
         await apiFetch("/api/purchases", { method: "POST", body: JSON.stringify(purchase) });
+        sessionPurchaseIds.current.add(purchase.id);
+        stateRef.current = reducer(stateRef.current, { type: "buy", purchase });
         dispatch({ type: "buy", purchase });
         const status = purchaseSeatStatus(purchase);
         queueSheets({
@@ -774,6 +792,8 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           campus: campusRef.current,
         };
         await apiFetch("/api/purchases", { method: "POST", body: JSON.stringify(purchase) });
+        sessionPurchaseIds.current.add(purchase.id);
+        stateRef.current = reducer(stateRef.current, { type: "buy", purchase });
         dispatch({ type: "buy", purchase });
         const status = purchaseSeatStatus(purchase);
         queueSheets({
@@ -781,6 +801,24 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
           seatPatch: Object.fromEntries(purchase.tickets.map((ticket) => [ticket.seatId, status])),
         });
         return purchase;
+      },
+      releaseHeldSeats: async (seatIds) => {
+        const covered = new Set(
+          stateRef.current.purchases
+            .filter((purchase) => !purchase.cancelled)
+            .flatMap((purchase) => purchase.tickets.map((ticket) => ticket.seatId)),
+        );
+        const seatPatch: Record<string, SeatStatus> = {};
+        const seatStatus = { ...stateRef.current.seatStatus };
+        for (const id of seatIds) {
+          if (covered.has(id) || seatStatus[id] !== "held") continue;
+          seatStatus[id] = "available";
+          seatPatch[id] = "available";
+        }
+        if (!Object.keys(seatPatch).length) return;
+        stateRef.current = { ...stateRef.current, seatStatus };
+        dispatch({ type: "setSeatStatus", seatStatus });
+        queueSheets({ seatPatch });
       },
       releaseBlock: async (id) => {
         const current = state.purchases.find((item) => item.id === id);
