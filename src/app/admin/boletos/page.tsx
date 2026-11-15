@@ -9,47 +9,18 @@ import { NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import { isMexicoToday } from "@/lib/auth/schedule";
 import { formatDate, formatNotifyBadgeDate, money, parseSeatId } from "@/lib/format";
 import { lastNotificationForInstallment } from "@/lib/notifyTemplates";
-import { priceForSeat } from "@/lib/pricing";
-import { groupContiguousSeats, isNamelessBlock, remainingBalance, type PurchasePatch } from "@/lib/purchases";
-import type { PaymentMethod, PaymentRecord, Purchase, Promotion, SeatRef } from "@/lib/types";
+import { groupContiguousSeats, isNamelessBlock, remainingBalance, syntheticNamelessHold, type PurchasePatch } from "@/lib/purchases";
+import type { PaymentMethod, PaymentRecord, Purchase } from "@/lib/types";
 
 function syntheticHolds(
   seatIds: string[],
-  seatIndex: Map<string, SeatRef>,
-  prices: { areaId: SeatRef["areaId"]; basePrice: number }[],
-  promotions: Promotion[],
+  seatIndex: Parameters<typeof syntheticNamelessHold>[1],
+  prices: Parameters<typeof syntheticNamelessHold>[2],
+  promotions: Parameters<typeof syntheticNamelessHold>[3],
 ): Purchase[] {
-  return groupContiguousSeats(seatIds).map((group) => {
-    const tickets = group.map((seatId) => {
-      const seat = seatIndex.get(seatId);
-      const priced = seat
-        ? priceForSeat(seat, prices, promotions)
-        : { price: 0, basePrice: 0, promotion: undefined };
-      return {
-        id: `hold-tkt-${seatId}`,
-        seatId,
-        holderName: "",
-        price: priced.price,
-        basePrice: priced.basePrice,
-        promotionName: priced.promotion?.name,
-      };
-    });
-    const total = tickets.reduce((sum, ticket) => sum + ticket.price, 0);
-    return {
-      id: `hold-${group[0]}`,
-      createdAt: new Date(0).toISOString(),
-      customer: { phone: NO_PHONE, email: NO_EMAIL },
-      paymentMode: "total",
-      paymentMethod: "cash",
-      tickets,
-      deposit: 0,
-      total,
-      paid: 0,
-      installments: [],
-      reminders: [],
-      payments: [],
-    };
-  });
+  return groupContiguousSeats(seatIds)
+    .map((group) => syntheticNamelessHold(group, seatIndex, prices, promotions))
+    .filter((purchase): purchase is Purchase => Boolean(purchase));
 }
 
 function isUnlinkedHold(purchase: Purchase) {
@@ -183,6 +154,26 @@ export default function BoletosAdminPage() {
       return haystack.includes(needle);
     });
   }, [filter, query, visiblePurchases]);
+
+  async function unblockSelected() {
+    if (!selected) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      if (isUnlinkedHold(selected)) {
+        await releaseHeldSeats(selected.tickets.map((ticket) => ticket.seatId));
+      } else {
+        await releaseBlock(selected.id);
+      }
+      setSelectedId(null);
+      setMessage("Lugares desbloqueados.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo desbloquear");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function materialize(purchase: Purchase) {
     if (!isUnlinkedHold(purchase)) return purchase.id;
@@ -332,6 +323,16 @@ export default function BoletosAdminPage() {
             </div>
 
             <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-5">
+            {canVoidBlock && isNamelessBlock(selected) ? (
+              <button
+                type="button"
+                className="btn-secondary w-fit"
+                disabled={busy}
+                onClick={() => void unblockSelected()}
+              >
+                Desbloquear lugares
+              </button>
+            ) : null}
             <RoleGate allow="tickets:edit">
               <details className="rounded-2xl border border-slate-200 p-3">
                 <summary className="cursor-pointer text-sm font-semibold">Editar datos</summary>
@@ -466,35 +467,6 @@ export default function BoletosAdminPage() {
                   <button type="button" className="btn-ghost w-fit" disabled={busy} onClick={() => void saveSelected()}>
                     {busy && message === "Guardando…" ? "Guardando…" : "Guardar datos"}
                   </button>
-                  {canVoidBlock && isNamelessBlock(selected) ? (
-                    <button
-                      type="button"
-                      className="btn-secondary w-fit"
-                      disabled={busy}
-                      onClick={() => {
-                        void (async () => {
-                          setBusy(true);
-                          setError("");
-                          setMessage("");
-                          try {
-                            if (isUnlinkedHold(selected)) {
-                              await releaseHeldSeats(selected.tickets.map((ticket) => ticket.seatId));
-                            } else {
-                              await releaseBlock(selected.id);
-                            }
-                            setSelectedId(null);
-                            setMessage("Lugares desbloqueados.");
-                          } catch (err) {
-                            setError(err instanceof Error ? err.message : "No se pudo desbloquear");
-                          } finally {
-                            setBusy(false);
-                          }
-                        })();
-                      }}
-                    >
-                      Desbloquear lugares
-                    </button>
-                  ) : null}
                 </div>
               </details>
             </RoleGate>

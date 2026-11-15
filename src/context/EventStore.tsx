@@ -821,9 +821,10 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         queueSheets({ seatPatch });
       },
       releaseBlock: async (id) => {
-        const current = state.purchases.find((item) => item.id === id);
+        const current = stateRef.current.purchases.find((item) => item.id === id);
         if (!current) throw new Error("Bloqueo no encontrado");
         const updated = releaseNamelessBlock(current);
+        stateRef.current = reducer(stateRef.current, { type: "releaseBlock", id });
         dispatch({ type: "releaseBlock", id });
         const seatPatch: Record<string, SeatStatus> = {};
         const status = purchaseSeatStatus(updated);

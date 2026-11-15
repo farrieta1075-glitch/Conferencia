@@ -18,7 +18,7 @@ import {
 } from "@/lib/geometry";
 import { boundsOf, findNeighbors, sectionAtPoint, sectionOverlapsView, viewMapBounds, viewToMap } from "@/lib/mapView";
 import { priceForSeat } from "@/lib/pricing";
-import { findPurchaseBySeat, isNamelessBlock } from "@/lib/purchases";
+import { findPurchaseBySeat, groupContiguousSeats, isNamelessBlock, syntheticNamelessHold } from "@/lib/purchases";
 import { buildSectionAlignLayout, type SectionAlignLayout } from "@/lib/tabulador/align";
 import { radiusForRow, resolveRowBands, rowDeltaR, type RowBandLayout } from "@/lib/tabulador/rowBands";
 import { sortedRows } from "@/lib/tabulador/seats";
@@ -81,7 +81,7 @@ interface VenueMapProps {
 }
 
 export function VenueMap({ focusSectionId = null }: VenueMapProps) {
-  const { state, statusOf, seatIndex, blockSeats, releaseBlock } = useEventStore();
+  const { state, statusOf, seatIndex, blockSeats, releaseBlock, releaseHeldSeats } = useEventStore();
   const salesFocus = useSalesFocus();
   const setFocus = salesFocus?.setFocus;
   const clearFocus = salesFocus?.clearFocus;
@@ -293,8 +293,27 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
     (id: string, status: SeatStatus, clientX: number, clientY: number) => {
       if (status === "sold" || status === "held") {
         const purchase = findPurchaseBySeat(state.purchases, id);
-        if (!purchase) return;
-        setPeek({ purchase, x: clientX, y: clientY });
+        if (purchase) {
+          setPeek({ purchase, x: clientX, y: clientY });
+          return;
+        }
+        if (status === "held") {
+          const foreign = new Set(state.foreignSeats ?? []);
+          const covered = new Set(
+            state.purchases
+              .filter((item) => !item.cancelled)
+              .flatMap((item) => item.tickets.map((ticket) => ticket.seatId)),
+          );
+          const orphans = Object.entries(state.seatStatus)
+            .filter(([seatId, seatStatus]) => seatStatus === "held" && !covered.has(seatId) && !foreign.has(seatId))
+            .map(([seatId]) => seatId);
+          const group = groupContiguousSeats(orphans).find((seats) => seats.includes(id)) ?? [id];
+          const synthetic = syntheticNamelessHold(group, seatIndex, state.prices, state.promotions);
+          if (synthetic) {
+            setPeek({ purchase: synthetic, x: clientX, y: clientY });
+            return;
+          }
+        }
         return;
       }
       setPeek(null);
@@ -303,7 +322,7 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
         current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
       );
     },
-    [canSell, expanded, state.purchases],
+    [canSell, expanded, seatIndex, state.foreignSeats, state.prices, state.promotions, state.purchases, state.seatStatus],
   );
 
   const handleSeatHover = useCallback((seat: SeatHover | null, pointerType?: string) => {
@@ -602,7 +621,11 @@ export function VenueMap({ focusSectionId = null }: VenueMapProps) {
                 onClose={closePeek}
                 canRelease={isAdmin && isNamelessBlock(peek.purchase)}
                 onRelease={async () => {
-                  await releaseBlock(peek.purchase.id);
+                  if (peek.purchase.id.startsWith("hold-")) {
+                    await releaseHeldSeats(peek.purchase.tickets.map((ticket) => ticket.seatId));
+                  } else {
+                    await releaseBlock(peek.purchase.id);
+                  }
                   closePeek();
                 }}
               />,

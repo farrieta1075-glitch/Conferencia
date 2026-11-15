@@ -1,5 +1,7 @@
+import { NO_EMAIL, NO_PHONE } from "@/lib/constants";
 import { parseSeatId, roundMoney } from "@/lib/format";
-import type { PaymentMethod, PaymentRecord, Purchase, ReminderJob, SeatStatus } from "@/lib/types";
+import { priceForSeat } from "@/lib/pricing";
+import type { PaymentMethod, PaymentRecord, Promotion, Purchase, ReminderJob, SeatRef, SeatStatus } from "@/lib/types";
 
 export interface PurchasePatch {
   phone?: string;
@@ -47,6 +49,44 @@ export function groupContiguousSeats(seatIds: string[]): string[][] {
     if (current.length) groups.push(current);
   }
   return [...groups, ...loose];
+}
+
+export function syntheticNamelessHold(
+  seatIds: string[],
+  seatIndex: Map<string, SeatRef>,
+  prices: { areaId: SeatRef["areaId"]; basePrice: number }[],
+  promotions: Promotion[],
+): Purchase | null {
+  if (!seatIds.length) return null;
+  const tickets = seatIds.map((seatId) => {
+    const seat = seatIndex.get(seatId);
+    const priced = seat
+      ? priceForSeat(seat, prices, promotions)
+      : { price: 0, basePrice: 0, promotion: undefined };
+    return {
+      id: `hold-tkt-${seatId}`,
+      seatId,
+      holderName: "",
+      price: priced.price,
+      basePrice: priced.basePrice,
+      promotionName: priced.promotion?.name,
+    };
+  });
+  const total = tickets.reduce((sum, ticket) => sum + ticket.price, 0);
+  return {
+    id: `hold-${seatIds[0]}`,
+    createdAt: new Date(0).toISOString(),
+    customer: { phone: NO_PHONE, email: NO_EMAIL },
+    paymentMode: "total",
+    paymentMethod: "cash",
+    tickets,
+    deposit: 0,
+    total,
+    paid: 0,
+    installments: [],
+    reminders: [],
+    payments: [],
+  };
 }
 
 export function releaseNamelessBlock(purchase: Purchase): Purchase {
