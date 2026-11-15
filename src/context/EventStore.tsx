@@ -22,6 +22,8 @@ import { priceForSeat } from "@/lib/pricing";
 import {
   applyPurchasePatch,
   applyPurchasePayment,
+  choosePurchaseForSeat,
+  isNamelessBlock,
   voidPurchasePayment,
   purchaseSeatStatus,
   releaseNamelessBlock,
@@ -77,6 +79,7 @@ type Action =
   | { type: "applyPayment"; id: string; amount: number; settleAll?: boolean; method?: Purchase["paymentMethod"] }
   | { type: "voidPayment"; id: string; paymentId: string; reason: string }
   | { type: "releaseBlock"; id: string }
+  | { type: "commitPurchases"; purchases: Purchase[] }
   | { type: "setSeatStatus"; seatStatus: Record<string, SeatStatus> }
   | { type: "setNotifyTemplates"; templates: NotifyTemplate[] }
   | { type: "resetVenue" };
@@ -123,6 +126,19 @@ function applySeatStatuses(state: PersistedState, purchase: Purchase): Persisted
     seatStatus[ticket.seatId] = nextStatus;
   }
   return { ...state, seatStatus };
+}
+
+function replacePurchases(current: PersistedState, replacements: Purchase[]): PersistedState {
+  if (!replacements.length) return current;
+  const byId = new Map(replacements.map((item) => [item.id, item]));
+  const purchases = current.purchases.map((item) => byId.get(item.id) ?? item);
+  const seatStatus = { ...current.seatStatus };
+  const touched = new Set(replacements.flatMap((item) => item.tickets.map((ticket) => ticket.seatId)));
+  for (const seatId of touched) {
+    const owner = choosePurchaseForSeat(purchases, seatId);
+    seatStatus[seatId] = owner ? purchaseSeatStatus(owner) : "available";
+  }
+  return { ...current, purchases, seatStatus };
 }
 
 export async function buildPurchase(
@@ -297,9 +313,10 @@ function reducer(state: PersistedState, action: Action): PersistedState {
       const current = state.purchases.find((item) => item.id === action.id);
       if (!current) return state;
       const updated = releaseNamelessBlock(current);
-      const purchases = state.purchases.map((item) => (item.id === action.id ? updated : item));
-      return applySeatStatuses({ ...state, purchases }, updated);
+      return replacePurchases(state, [updated]);
     }
+    case "commitPurchases":
+      return replacePurchases(state, action.purchases);
     case "setSeatStatus":
       return { ...state, seatStatus: action.seatStatus };
     case "setNotifyTemplates":
@@ -463,9 +480,9 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
   roleRef.current = session?.user?.role;
 
   function flushSheets() {
-    if (!sheetsReady.current || !canSyncRef.current) return;
+    if (!sheetsReady.current || !canSyncRef.current) return syncChain;
     const pending = takePending();
-    if (!hasPending(pending)) return;
+    if (!hasPending(pending)) return syncChain;
     const snapshot = stateRef.current;
     syncChain = syncChain
       .then(() =>
@@ -485,6 +502,12 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         }),
       )
       .catch(() => undefined);
+    return syncChain;
+  }
+
+  function keepQueuedPurchasesCurrent() {
+    if (!pendingSheets.purchases) return;
+    pendingSheets.purchasesSnapshot = stateRef.current.purchases;
   }
 
   function queueSheets(update: Partial<PendingSheets>) {
@@ -692,60 +715,87 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         await apiFetch(`/api/promotions?id=${encodeURIComponent(id)}`, { method: "DELETE" });
       },
       buy: async (payload) => {
-        const foreign = new Set(state.foreignSeats ?? []);
+        const foreign = new Set(stateRef.current.foreignSeats ?? []);
         if (payload.seatIds.some((id) => foreign.has(id))) {
           throw new Error("Uno o más asientos ya están asignados a otro campus");
         }
+        const wanted = new Set(payload.seatIds);
+        const active = stateRef.current.purchases.filter((purchase) => !purchase.cancelled);
+        const taken = payload.seatIds.filter((id) =>
+          active.some(
+            (purchase) =>
+              !isNamelessBlock(purchase) && purchase.tickets.some((ticket) => ticket.seatId === id),
+          ),
+        );
+        if (taken.length) throw new Error("Uno o más asientos ya tienen una venta");
+        const blocks = active.filter(
+          (purchase) => isNamelessBlock(purchase) && purchase.tickets.some((ticket) => wanted.has(ticket.seatId)),
+        );
         const purchase = {
-          ...(await buildPurchase(state, payload)),
+          ...(await buildPurchase(stateRef.current, payload)),
           campus: campusRef.current,
         };
         await apiFetch("/api/purchases", { method: "POST", body: JSON.stringify(purchase) });
         sessionPurchaseIds.current.add(purchase.id);
-        stateRef.current = reducer(stateRef.current, { type: "buy", purchase });
+        const released = blocks.map((block) => releaseNamelessBlock(block));
+        const replaced = replacePurchases(stateRef.current, released);
+        const next = applySeatStatuses(
+          { ...replaced, purchases: [purchase, ...replaced.purchases] },
+          purchase,
+        );
+        stateRef.current = next;
+        if (released.length) dispatch({ type: "commitPurchases", purchases: released });
         dispatch({ type: "buy", purchase });
-        const status = purchaseSeatStatus(purchase);
-        queueSheets({
-          purchases: true,
-          seatPatch: Object.fromEntries(purchase.tickets.map((ticket) => [ticket.seatId, status])),
-        });
+        const seatPatch: Record<string, SeatStatus> = {};
+        for (const block of blocks) {
+          for (const ticket of block.tickets) {
+            const status = next.seatStatus[ticket.seatId];
+            if (status) seatPatch[ticket.seatId] = status;
+          }
+        }
+        for (const ticket of purchase.tickets) {
+          const status = next.seatStatus[ticket.seatId];
+          if (status) seatPatch[ticket.seatId] = status;
+        }
+        queueSheets({ purchases: true, seatPatch });
         return purchase;
       },
       updatePurchase: async (id, patch) => {
-        dispatch({ type: "updatePurchase", id, patch });
-        queueSheets({ purchases: true });
+        const current = stateRef.current.purchases.find((item) => item.id === id);
+        if (!current) throw new Error("Compra no encontrada");
         await apiFetch(`/api/purchases/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(patch),
         });
+        const updated = applyPurchasePatch(current, patch);
+        stateRef.current = replacePurchases(stateRef.current, [updated]);
+        dispatch({ type: "commitPurchases", purchases: [updated] });
+        queueSheets({ purchases: true });
       },
       applyPayment: async (id, amount, settleAll, method) => {
-        const current = state.purchases.find((item) => item.id === id);
+        const current = stateRef.current.purchases.find((item) => item.id === id);
         if (!current) throw new Error("Compra no encontrada");
-        const updated = applyPurchasePayment(current, amount, settleAll, method);
-        const seatPatch: Record<string, SeatStatus> = {};
-        const status = purchaseSeatStatus(updated);
-        for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
-        const purchases = state.purchases.map((item) => (item.id === id ? updated : item));
-        await apiFetch(`/api/purchases/${encodeURIComponent(id)}/pay`, {
-          method: "POST",
-          body: JSON.stringify({ amount, settleAll, method }),
-        });
-        if (roleRef.current === "VIEWER") {
-          await apiFetch("/api/sheets", {
+        await flushSheets();
+        const result = await apiFetch<{ purchase?: Purchase }>(
+          `/api/purchases/${encodeURIComponent(id)}/pay`,
+          {
             method: "POST",
             body: JSON.stringify({
-              delta: { campus: campusRef.current, purchases, seatPatch },
+              amount,
+              settleAll,
+              method,
+              campus: campusRef.current,
             }),
-          });
-        }
-        dispatch({ type: "applyPayment", id, amount, settleAll, method });
-        if (canSyncRef.current) {
-          queueSheets({ purchases: true, seatPatch });
-        }
+          },
+        );
+        const updated = result.purchase ?? applyPurchasePayment(current, amount, settleAll, method);
+        const next = replacePurchases(stateRef.current, [updated]);
+        stateRef.current = next;
+        dispatch({ type: "commitPurchases", purchases: [updated] });
+        keepQueuedPurchasesCurrent();
       },
       voidPayment: async (id, paymentId, reason) => {
-        const current = state.purchases.find((item) => item.id === id);
+        const current = stateRef.current.purchases.find((item) => item.id === id);
         if (!current) throw new Error("Compra no encontrada");
         const target = (current.payments ?? []).find((item) => item.id === paymentId && !item.cancelled);
         if (!target) throw new Error("Pago no encontrado");
@@ -753,31 +803,39 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
         if (role === "VIEWER" && !isMexicoToday(target.date)) {
           throw new Error("Solo puedes cancelar pagos del día de hoy");
         }
+        await flushSheets();
         const updated = voidPurchasePayment(current, paymentId, reason);
+        const next = replacePurchases(stateRef.current, [updated]);
+        stateRef.current = next;
         const seatPatch: Record<string, SeatStatus> = {};
-        const status = purchaseSeatStatus(updated);
-        for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
-        const purchases = state.purchases.map((item) => (item.id === id ? updated : item));
+        for (const ticket of updated.tickets) {
+          const status = next.seatStatus[ticket.seatId];
+          if (status) seatPatch[ticket.seatId] = status;
+        }
         if (role === "VIEWER") {
           await apiFetch("/api/sheets", {
             method: "POST",
             body: JSON.stringify({
-              delta: { campus: campusRef.current, purchases, seatPatch },
+              delta: { campus: campusRef.current, purchases: next.purchases, seatPatch },
             }),
           });
         }
-        dispatch({ type: "voidPayment", id, paymentId, reason });
-        if (canSyncRef.current) {
-          queueSheets({ purchases: true, seatPatch });
-        }
+        dispatch({ type: "commitPurchases", purchases: [updated] });
+        if (canSyncRef.current) queueSheets({ purchases: true, seatPatch });
       },
       blockSeats: async (seatIds) => {
-        const foreign = new Set(state.foreignSeats ?? []);
+        const foreign = new Set(stateRef.current.foreignSeats ?? []);
         if (seatIds.some((id) => foreign.has(id))) {
           throw new Error("Uno o más asientos ya están asignados a otro campus");
         }
+        const taken = seatIds.filter((id) =>
+          stateRef.current.purchases.some(
+            (purchase) => !purchase.cancelled && purchase.tickets.some((ticket) => ticket.seatId === id),
+          ),
+        );
+        if (taken.length) throw new Error("Uno o más asientos ya están apartados o vendidos");
         const purchase = {
-          ...(await buildPurchase(state, {
+          ...(await buildPurchase(stateRef.current, {
             seatIds,
             holderNames: seatIds.map(() => ""),
             phone: NO_PHONE,
@@ -823,12 +881,22 @@ export function EventStoreProvider({ children }: { children: ReactNode }) {
       releaseBlock: async (id) => {
         const current = stateRef.current.purchases.find((item) => item.id === id);
         if (!current) throw new Error("Bloqueo no encontrado");
-        const updated = releaseNamelessBlock(current);
-        stateRef.current = reducer(stateRef.current, { type: "releaseBlock", id });
-        dispatch({ type: "releaseBlock", id });
+        if (!isNamelessBlock(current)) throw new Error("Solo se pueden desbloquear lugares sin nombre");
+        const seatIds = new Set(current.tickets.map((ticket) => ticket.seatId));
+        const related = stateRef.current.purchases.filter(
+          (purchase) =>
+            isNamelessBlock(purchase) && purchase.tickets.some((ticket) => seatIds.has(ticket.seatId)),
+        );
+        const released = related.map((purchase) => releaseNamelessBlock(purchase));
+        const next = replacePurchases(stateRef.current, released);
+        stateRef.current = next;
+        dispatch({ type: "commitPurchases", purchases: released });
         const seatPatch: Record<string, SeatStatus> = {};
-        const status = purchaseSeatStatus(updated);
-        for (const ticket of updated.tickets) seatPatch[ticket.seatId] = status;
+        for (const purchase of related) {
+          for (const ticket of purchase.tickets) {
+            seatPatch[ticket.seatId] = next.seatStatus[ticket.seatId] ?? "available";
+          }
+        }
         queueSheets({ purchases: true, seatPatch });
       },
       saveSeatAssignments: async (seatStatus) => {

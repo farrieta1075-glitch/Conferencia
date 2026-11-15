@@ -63,6 +63,19 @@ async function rowCount(spreadsheetId: string, tab: string): Promise<number> {
   return result.data.values?.length ?? 0;
 }
 
+async function sheetRowCount(spreadsheetId: string, tab: string) {
+  const sheets = getSheets();
+  const meta = await sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets(properties(title,sheetId,gridProperties(rowCount)))",
+  });
+  const found = (meta.data.sheets ?? []).find((sheet) => sheet.properties?.title === tab);
+  return {
+    sheetId: found?.properties?.sheetId,
+    rowCount: found?.properties?.gridProperties?.rowCount ?? 0,
+  };
+}
+
 async function replaceTab(
   spreadsheetId: string,
   tab: string,
@@ -79,16 +92,40 @@ async function replaceTab(
   }
 
   const sheets = getSheets();
+  const size = await sheetRowCount(spreadsheetId, tab);
+  let gridRows = size.rowCount;
+  const needed = Math.max(values.length + 1, 1);
+  if (size.sheetId != null && gridRows < needed) {
+    gridRows = needed + 50;
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            updateSheetProperties: {
+              properties: {
+                sheetId: size.sheetId,
+                gridProperties: { rowCount: gridRows },
+              },
+              fields: "gridProperties.rowCount",
+            },
+          },
+        ],
+      },
+    });
+  }
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${tab}!A1`,
     valueInputOption: "RAW",
     requestBody: { values: rows(values) },
   });
-  await sheets.spreadsheets.values.clear({
-    spreadsheetId,
-    range: `${tab}!A${values.length + 1}:Z`,
-  });
+  if (values.length + 1 <= gridRows) {
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `${tab}!A${values.length + 1}:Z`,
+    });
+  }
 }
 
 async function mergeCampusTab(

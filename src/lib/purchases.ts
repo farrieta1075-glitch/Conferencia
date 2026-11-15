@@ -15,8 +15,9 @@ export function remainingBalance(purchase: Purchase): number {
 }
 
 export function isNamelessBlock(purchase: Purchase): boolean {
-  if (purchase.cancelled) return false;
-  return purchase.tickets.every((ticket) => !ticket.holderName.trim());
+  if (purchase.cancelled || purchase.paid > 0.009) return false;
+  if ((purchase.payments ?? []).some((item) => !item.cancelled && item.amount > 0.009)) return false;
+  return purchase.tickets.length > 0 && purchase.tickets.every((ticket) => !ticket.holderName.trim());
 }
 
 export function groupContiguousSeats(seatIds: string[]): string[][] {
@@ -158,10 +159,101 @@ export function syncInstallmentsToPaid(purchase: Purchase): Purchase {
   return { ...purchase, installments };
 }
 
-export function findPurchaseBySeat(purchases: Purchase[], seatId: string): Purchase | undefined {
-  return purchases.find(
+function purchaseRecency(purchase: Purchase): string {
+  return `${purchase.createdAt}\u0000${purchase.id}`;
+}
+
+export function choosePurchaseForSeat(purchases: Purchase[], seatId: string): Purchase | undefined {
+  const matches = purchases.filter(
     (purchase) => !purchase.cancelled && purchase.tickets.some((ticket) => ticket.seatId === seatId),
   );
+  if (!matches.length) return undefined;
+  const real = matches.filter((purchase) => !isNamelessBlock(purchase) || purchase.paid > 0.009);
+  const pool = real.length ? real : matches;
+  return [...pool].sort((a, b) => purchaseRecency(b).localeCompare(purchaseRecency(a)))[0];
+}
+
+export function findPurchaseBySeat(purchases: Purchase[], seatId: string): Purchase | undefined {
+  return choosePurchaseForSeat(purchases, seatId);
+}
+
+export function cancelUnpaidPurchase(purchase: Purchase, reason: string): Purchase {
+  if (purchase.cancelled || purchase.paid > 0.009) return purchase;
+  if ((purchase.payments ?? []).some((item) => !item.cancelled && item.amount > 0.009)) return purchase;
+  return {
+    ...purchase,
+    cancelled: true,
+    paid: 0,
+    payments: [
+      ...(purchase.payments ?? []),
+      {
+        id: `pay-release-${purchase.id}`,
+        date: new Date().toISOString(),
+        amount: 0,
+        method: purchase.paymentMethod,
+        cancelled: true,
+        cancelReason: reason,
+        cancelledAt: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+export function dropSupersededHolds(purchases: Purchase[]): { purchases: Purchase[]; changed: boolean } {
+  const owners = new Map<string, string>();
+  for (const purchase of purchases) {
+    if (purchase.cancelled) continue;
+    for (const ticket of purchase.tickets) {
+      const chosen = choosePurchaseForSeat(purchases, ticket.seatId);
+      if (chosen) owners.set(ticket.seatId, chosen.id);
+    }
+  }
+  let changed = false;
+  const next = purchases.map((purchase) => {
+    if (purchase.cancelled || !purchase.tickets.length) return purchase;
+    const kept = purchase.tickets.filter((ticket) => owners.get(ticket.seatId) === purchase.id);
+    if (kept.length === purchase.tickets.length) return purchase;
+    if (purchase.paid > 0.009) return purchase;
+    if ((purchase.payments ?? []).some((item) => !item.cancelled && item.amount > 0.009)) return purchase;
+    changed = true;
+    if (!kept.length) return cancelUnpaidPurchase(purchase, "Reemplazado por la venta más reciente");
+    const total = roundMoney(kept.reduce((sum, ticket) => sum + ticket.price, 0));
+    return {
+      ...purchase,
+      tickets: kept,
+      total,
+      deposit: Math.min(purchase.deposit, total),
+      paid: 0,
+    };
+  });
+  return { purchases: next, changed };
+}
+
+export function withMissingPaymentRecord(purchase: Purchase): { purchase: Purchase; changed: boolean } {
+  const recorded = roundMoney(
+    (purchase.payments ?? [])
+      .filter((item) => !item.cancelled)
+      .reduce((sum, item) => sum + item.amount, 0),
+  );
+  const missing = roundMoney(purchase.paid - recorded);
+  if (missing <= 0.009) return { purchase, changed: false };
+  const id = `pay-${purchase.id}-registrado`;
+  if ((purchase.payments ?? []).some((item) => item.id === id)) return { purchase, changed: false };
+  return {
+    changed: true,
+    purchase: {
+      ...purchase,
+      payments: [
+        ...(purchase.payments ?? []),
+        {
+          id,
+          date: purchase.createdAt || new Date().toISOString(),
+          amount: missing,
+          method: purchase.paymentMethod,
+        },
+      ],
+    },
+  };
 }
 
 export function activePayments(purchase: Purchase): PaymentRecord[] {

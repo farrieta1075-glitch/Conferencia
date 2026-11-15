@@ -39,8 +39,14 @@ export async function GET(request: Request) {
         if (payload.ready) {
           const loaded = await loadStateFromSheets(campus);
           payload.state = loaded?.state ?? null;
-          if (loaded?.persistPurchases && loaded.state.purchases.length) {
-            await applySheetsDelta({ campus, purchases: loaded.state.purchases });
+          const seatPatch = loaded?.seatPatch ?? {};
+          const hasSeatPatch = Object.keys(seatPatch).length > 0;
+          if (loaded && ((loaded.persistPurchases && loaded.state.purchases.length) || hasSeatPatch)) {
+            await applySheetsDelta({
+              campus,
+              purchases: loaded.persistPurchases ? loaded.state.purchases : undefined,
+              seatPatch: hasSeatPatch ? seatPatch : undefined,
+            });
           }
         } else {
           payload.state = null;

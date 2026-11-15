@@ -1,6 +1,12 @@
 import { AREA_LABELS, AREA_ORDER, DEFAULT_PRICES } from "@/lib/constants";
 import { roundMoney } from "@/lib/format";
-import { syncInstallmentsToPaid } from "@/lib/purchases";
+import {
+  choosePurchaseForSeat,
+  dropSupersededHolds,
+  purchaseSeatStatus,
+  syncInstallmentsToPaid,
+  withMissingPaymentRecord,
+} from "@/lib/purchases";
 import { DEFAULT_CAMPUS, dataCampusOf, type DataCampus } from "@/lib/campus";
 import { filterCampusRows } from "@/lib/sheets/campusRows";
 import { ensureTabs, getSheets, getSpreadsheetId, sheetsConfigured } from "@/lib/sheets/client";
@@ -234,6 +240,7 @@ function buildPurchases(
               },
             ]
           : [];
+    if (logged.length === 0 && paid > 0) persistPurchases = true;
     const rawInstallments = installmentRows
       .filter((item) => item[0] === id)
       .map((item) => ({
@@ -243,6 +250,22 @@ function buildPurchases(
         paid: item[4]?.toLowerCase() === "si" || item[4] === "true",
         originalAmount: Number(item[5]) || Number(item[3]) || 0,
       }));
+    const recorded = withMissingPaymentRecord({
+      id,
+      createdAt: createdAt || new Date().toISOString(),
+      campus,
+      customer: { email: email || "", phone: phone || "" },
+      paymentMode,
+      paymentMethod,
+      tickets: [],
+      deposit: paid,
+      total,
+      paid,
+      installments: [],
+      payments: paymentsForPurchase,
+      reminders: [],
+    });
+    if (recorded.changed) persistPurchases = true;
     const synced = syncInstallmentsToPaid({
       id,
       createdAt: createdAt || new Date().toISOString(),
@@ -264,8 +287,11 @@ function buildPurchases(
       total,
       paid,
       installments: rawInstallments,
-      payments: paymentsForPurchase,
-      cancelled: paid <= 0.009 && paymentsForPurchase.length > 0 && paymentsForPurchase.every((item) => item.cancelled),
+      payments: recorded.purchase.payments ?? [],
+      cancelled:
+        paid <= 0.009 &&
+        (recorded.purchase.payments ?? []).length > 0 &&
+        (recorded.purchase.payments ?? []).every((item) => item.cancelled),
       reminders: notifyRows
         .filter((item) => item[0] === id)
         .map((item): ReminderJob => ({
@@ -283,12 +309,20 @@ function buildPurchases(
     purchases.push(synced);
   }
 
-  return { purchases, persistPurchases };
+  const superseded = dropSupersededHolds(purchases);
+  return {
+    purchases: superseded.purchases,
+    persistPurchases: persistPurchases || superseded.changed,
+  };
 }
 
 export async function loadStateFromSheets(
   campus: DataCampus = DEFAULT_CAMPUS,
-): Promise<{ state: PersistedState; persistPurchases: boolean } | null> {
+): Promise<{
+  state: PersistedState;
+  persistPurchases: boolean;
+  seatPatch: Record<string, SeatStatus>;
+} | null> {
   if (!sheetsConfigured()) return null;
   const spreadsheetId = await getSpreadsheetId();
   if (!spreadsheetId) return null;
@@ -392,8 +426,23 @@ export async function loadStateFromSheets(
     campus,
   );
 
+  const seatPatch: Record<string, SeatStatus> = {};
+  const mentioned = new Set<string>();
+  for (const purchase of purchases) {
+    for (const ticket of purchase.tickets) mentioned.add(ticket.seatId);
+  }
+  for (const seatId of mentioned) {
+    if (claimed.get(seatId) && claimed.get(seatId) !== campus) continue;
+    const owner = choosePurchaseForSeat(purchases, seatId);
+    const expected: SeatStatus = owner ? purchaseSeatStatus(owner) : "available";
+    if (seatStatus[seatId] === expected) continue;
+    seatStatus[seatId] = expected;
+    seatPatch[seatId] = expected;
+  }
+
   return {
     persistPurchases,
+    seatPatch,
     state: {
       event: {
         name: eventName || "Evento",
