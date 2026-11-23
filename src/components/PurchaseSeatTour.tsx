@@ -196,7 +196,7 @@ export function PurchaseSeatTour({
       >
         <svg
           viewBox={viewBox}
-          className="h-56 w-full touch-none sm:h-72"
+          className="h-32 w-full touch-none lg:h-72"
           style={{ touchAction: "none", pointerEvents: "none" }}
           role="img"
           aria-hidden="true"

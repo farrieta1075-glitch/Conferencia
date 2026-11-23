@@ -32,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   const isSales = pathname === "/" || pathname.startsWith("/seccion");
+  const isBoletos = pathname.startsWith("/admin/boletos");
 
   return (
     <SalesFocusProvider>
@@ -40,7 +41,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <RegisterSW />
         <SyncPwaIcon />
         <EditorAccessGuard />
-        <Header compact={isSales} />
+        <Header compact={isSales} slim={isBoletos} />
         <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden lg:flex-row phone-landscape:flex-row">
           <Nav />
           <main

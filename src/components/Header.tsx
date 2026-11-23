@@ -43,7 +43,7 @@ function Unit({ value, label }: { value: number; label: string }) {
   );
 }
 
-export function Header({ compact = false }: { compact?: boolean }) {
+export function Header({ compact = false, slim = false }: { compact?: boolean; slim?: boolean }) {
   const { state, availableCount } = useEventStore();
   const { data: session } = useSession();
   const { campus, canSwitch, setCampus } = useCampus();
@@ -61,7 +61,11 @@ export function Header({ compact = false }: { compact?: boolean }) {
         className={`mx-auto flex max-w-7xl px-3 sm:px-4 phone-landscape:px-2 ${
           compact
             ? "flex-row items-center justify-between gap-2 py-1.5 sm:gap-3 sm:py-2 phone-landscape:gap-1.5 phone-landscape:py-0.5"
-            : "flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between phone-landscape:flex-row phone-landscape:items-center phone-landscape:gap-1.5 phone-landscape:py-0.5"
+            : `gap-3 py-3 lg:flex-row lg:items-center lg:justify-between phone-landscape:flex-row phone-landscape:items-center phone-landscape:gap-1.5 phone-landscape:py-0.5 ${
+                slim
+                  ? "flex-row items-center justify-between max-lg:gap-2 max-lg:py-2 lg:flex-row"
+                  : "flex-col"
+              }`
         }`}
       >
         <div className={`flex min-w-0 items-center gap-2 sm:gap-3 phone-landscape:gap-1.5 ${compact ? "min-h-9 phone-landscape:min-h-7" : "min-h-12 phone-landscape:min-h-7"}`}>
@@ -70,16 +74,16 @@ export function Header({ compact = false }: { compact?: boolean }) {
             <img
               src={state.event.logoDataUrl}
               alt={`Logo de ${state.event.name}`}
-              className={`rounded-2xl object-cover ring-1 ring-bronze/50 ${compact ? "h-9 w-9 sm:h-11 sm:w-11 phone-landscape:h-7 phone-landscape:w-7" : "h-12 w-12 phone-landscape:h-7 phone-landscape:w-7"}`}
+              className={`rounded-2xl object-cover ring-1 ring-bronze/50 ${compact ? "h-9 w-9 sm:h-11 sm:w-11 phone-landscape:h-7 phone-landscape:w-7" : `h-12 w-12 phone-landscape:h-7 phone-landscape:w-7 ${slim ? "max-lg:h-8 max-lg:w-8" : ""}`}`}
             />
           ) : (
-            <LogoMark className={compact ? "h-9 w-9 sm:h-11 sm:w-11 phone-landscape:h-7 phone-landscape:w-7" : "h-12 w-12 phone-landscape:h-7 phone-landscape:w-7"} />
+            <LogoMark className={compact ? "h-9 w-9 sm:h-11 sm:w-11 phone-landscape:h-7 phone-landscape:w-7" : `h-12 w-12 phone-landscape:h-7 phone-landscape:w-7 ${slim ? "max-lg:h-8 max-lg:w-8" : ""}`} />
           )}
           <div className="min-w-0">
-            <p className={`uppercase tracking-[0.18em] text-bronze ${compact ? "hidden text-[10px] sm:block phone-landscape:hidden" : "text-[11px] phone-landscape:hidden"}`}>
+            <p className={`uppercase tracking-[0.18em] text-bronze ${compact ? "hidden text-[10px] sm:block phone-landscape:hidden" : `text-[11px] phone-landscape:hidden ${slim ? "max-lg:hidden" : ""}`}`}>
               Auditorio Nacional · CDMX
             </p>
-            <h1 className={`font-display leading-tight ${compact ? "truncate text-base sm:text-xl phone-landscape:text-sm" : "text-xl md:text-2xl phone-landscape:truncate phone-landscape:text-sm"}`}>
+            <h1 className={`font-display leading-tight ${compact ? "truncate text-base sm:text-xl phone-landscape:text-sm" : `text-xl md:text-2xl phone-landscape:truncate phone-landscape:text-sm ${slim ? "max-lg:truncate max-lg:text-base" : ""}`}`}>
               {state.event.name}
             </h1>
           </div>
@@ -97,7 +101,7 @@ export function Header({ compact = false }: { compact?: boolean }) {
             </div>
           </>
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 phone-landscape:hidden">
+          <div className={`grid grid-cols-1 gap-2 sm:grid-cols-3 phone-landscape:hidden ${slim ? "max-lg:hidden lg:grid" : ""}`}>
             <div className="flex min-h-12 items-center justify-between rounded-2xl bg-navy-mid px-3 py-2 sm:block">
               <p className="text-[10px] uppercase tracking-wider text-slate-300">Ahora</p>
               <p className="text-sm font-semibold tabular-nums">
@@ -135,8 +139,8 @@ export function Header({ compact = false }: { compact?: boolean }) {
           </div>
         )}
         {session?.user && (
-          <div className={`flex shrink-0 items-center gap-2 rounded-2xl bg-navy-mid px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2 phone-landscape:gap-1 phone-landscape:rounded-lg phone-landscape:px-1.5 phone-landscape:py-0.5 ${compact ? "" : "justify-between lg:flex-col lg:items-end phone-landscape:flex-row phone-landscape:items-center"}`}>
-            <div className={compact ? "hidden text-right sm:block phone-landscape:hidden" : "text-right phone-landscape:hidden"}>
+          <div className={`flex shrink-0 items-center gap-2 rounded-2xl bg-navy-mid px-2 py-1.5 sm:gap-3 sm:px-3 sm:py-2 phone-landscape:gap-1 phone-landscape:rounded-lg phone-landscape:px-1.5 phone-landscape:py-0.5 ${compact ? "" : "justify-between lg:flex-col lg:items-end phone-landscape:flex-row phone-landscape:items-center"} ${slim ? "max-lg:gap-1 max-lg:bg-transparent max-lg:p-0" : ""}`}>
+            <div className={compact ? "hidden text-right sm:block phone-landscape:hidden" : `text-right phone-landscape:hidden ${slim ? "max-lg:hidden lg:block" : ""}`}>
               <p className="text-sm font-semibold">{session.user.email}</p>
               <p className="text-[10px] uppercase tracking-wider text-bronze">
                 {session.user.role ? roleLabel(session.user.role) : ""} · {campusLabel(campus)}
@@ -164,7 +168,11 @@ export function Header({ compact = false }: { compact?: boolean }) {
             {canSwitch ? (
               <select
                 className={`max-w-20 rounded-lg bg-navy px-1 text-[10px] text-white phone-landscape:min-h-7 ${
-                  compact ? "min-h-9 sm:hidden phone-landscape:!flex" : "hidden phone-landscape:!flex"
+                  compact
+                    ? "min-h-9 sm:hidden phone-landscape:!flex"
+                    : slim
+                      ? "hidden max-lg:block phone-landscape:!flex lg:hidden"
+                      : "hidden phone-landscape:!flex"
                 }`}
                 value={campus}
                 onChange={(event) => setCampus(event.target.value as typeof campus)}
@@ -179,7 +187,7 @@ export function Header({ compact = false }: { compact?: boolean }) {
             ) : null}
             <button
               type="button"
-              className="btn-ghost min-h-10 px-3 text-xs text-white"
+              className={`btn-ghost min-h-10 px-3 text-xs text-white ${slim ? "max-lg:min-h-9 max-lg:px-2.5" : ""}`}
               onClick={() => void signOut({ callbackUrl: "/login" })}
             >
               Salir
